@@ -1,3 +1,6 @@
 [submodule "orchestrator/audio_module"]
 	path = orchestrator/audio_module
 	url = https://github.com/sheelestun/Edge_NSU_b_part
+[submodule "orchestrator/memory_module"]
+	path = orchestrator/memory_module
+	url = https://github.com/LessVegetables/jarvis-memory
