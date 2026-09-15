@@ -1,219 +1,223 @@
-"""
-app.py — Оркестратор проекта Джарвис (Задача А).
-Собирает все модули в единое приложение, управляет циклом состояний.
-
-ИНТЕГРАЦИЯ МОДУЛЕЙ:
-- Модуль Б (аудио): интегрирован как git submodule из Edge_NSU_b_part
-- Модуль Ц (БД): раскомментировать import при готовности
-- Модуль Г (LLM): раскомментировать import при готовности
-"""
-
 import asyncio
 import logging
+import sys
 import time
-from typing import Optional
+from pathlib import Path
 
-# Импорты интерфейсов
-from contracts import SpeakerResult, UserContext
+from contracts import SpeakerResult
 
-# =============================================================================
-# IMPORTS: Модули
-# =============================================================================
+# Корень папки orchestrator
+BASE_DIR = Path(__file__).resolve().parent
 
-# Модуль Б (аудио): git submodule из Edge_NSU_b_part
-from audio_module import AudioEngine  # <-- ИНТЕГРИРОВАНО
+# Позволяет импортировать пакет jarvis_memory,
+# находящийся в orchestrator/memory_module/jarvis_memory
+MEMORY_MODULE_DIR = BASE_DIR / "memory_module"
+if MEMORY_MODULE_DIR.exists():
+    sys.path.insert(0, str(MEMORY_MODULE_DIR))
 
-# Модуль Ц (БД)
-# from database_module import UserDatabase  # <-- РАСКОММЕНТИРОВАТЬ ПРИ ГОТОВНОСТИ
+# Модуль Б: git submodule Edge_NSU_b_part.
+# ВАЖНО: имя класса/пути нужно сверить с реальной структурой репозитория друга.
+from audio_module import AudioEngine
 
-# Модуль Г (LLM)
-# from llm_module import LLMEngine  # <-- РАСКОММЕНТИРОВАТЬ ПРИ ГОТОВНОСТИ
+# Модуль Ц: git submodule LessVegetables/jarvis-memory.
+# Пока submodule не добавлен, этот импорт упадёт.
+import jarvis_memory as memory
+
+# Модуль Г — подключите, когда участник Г пришлёт реализацию.
+# Например:
+# from llm_module import LLMEngine
+
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s"
+    format="%(asctime)s [%(levelname)s] %(message)s",
 )
 
 
-# =============================================================================
-# ЗАГЛУШКИ МОДУЛЕЙ (MOCKS)
-# Замените эти классы на реальные импорты из модулей Б, Ц, Г
-# =============================================================================
+class LLMEngineMock:
+    """
+    Временная заглушка модуля Г.
 
-class AudioEngineMock:
-    """Заглушка модуля Б: Wake Word, VAD, NPU Speaker ID, STT, TTS"""
+    Финальный контракт модуля Г:
+        await llm.generate(messages) -> str
 
-    async def wait_for_wake_word(self) -> None:
-        logging.info("Ожидание wake-word 'Джарвис'...")
-        await asyncio.sleep(2.0)
-        logging.info(">>> Wake-word обнаружен!")
+    messages имеет формат:
+    [
+        {"role": "system", "content": "..."},
+        {"role": "user", "content": "..."},
+        {"role": "assistant", "content": "..."},
+        ...
+    ]
+    """
 
-    async def record_phrase(self) -> bytes:
-        logging.info("Запись голосовой команды (VAD)...")
-        await asyncio.sleep(1.5)
-        return b"fake_pcm_audio_data"
+    async def generate(self, messages: list[dict[str, str]]) -> str:
+        logging.info("LLM: генерация ответа...")
 
-    async def identify_speaker(self, audio_data: bytes) -> SpeakerResult:
-        logging.info("NPU: Инференс Speaker ID модели...")
-        await asyncio.sleep(0.05)  # Имитация ~50 мс инференса
-        return SpeakerResult(user_id="user_1", user_name="Алексей", confidence=0.89)
+        for message in reversed(messages):
+            if message.get("role") == "user":
+                query = message.get("content", "")
+                break
+        else:
+            query = ""
 
-    async def speech_to_text(self, audio_data: bytes) -> str:
-        logging.info("STT: Распознавание речи...")
-        await asyncio.sleep(0.3)
-        return "Какое у меня сегодня расписание?"
+        await asyncio.sleep(0.8)
 
-    async def play_tts(self, text: str) -> None:
-        logging.info(f"Динамик (TTS): '{text}'")
-        await asyncio.sleep(1.5)
-
-
-class UserDatabaseMock:
-    """Заглушка модуля Ц: Профили и векторная БД"""
-
-    def __init__(self):
-        self.profiles = {
-            "user_1": {
-                "name": "Алексей",
-                "schedule": "В 14:00 защита проекта на Firefly RK3588S, в 18:00 спортзал."
-            },
-            "user_2": {
-                "name": "Елена",
-                "schedule": "В 10:00 созвон по работе, вечером покупка продуктов."
-            }
-        }
-
-    async def get_user_context(
-        self,
-        speaker: SpeakerResult,
-        user_query: str
-    ) -> UserContext:
-        user_data = self.profiles.get(speaker.user_id)
-        if not user_data:
-            return UserContext(
-                user_id="guest",
-                user_name="Гость",
-                system_prompt="Пользователь не опознан. Отвечай нейтрально и вежливо."
+        if "расписан" in query.lower():
+            return (
+                "Сегодня у вас в 14:00 защита проекта "
+                "на Firefly RK3588S, а в 18:00 спортзал."
             )
 
-        prompt = (
-            f"Ты — локальный домашний ассистент Джарвис. "
-            f"Ты разговариваешь с жильцом по имени {user_data['name']}. "
-            f"Вот его актуальное расписание на сегодня: {user_data['schedule']}. "
-            f"Отвечай кратко, дружелюбно, 1-2 предложениями."
-        )
-        return UserContext(
-            user_id=speaker.user_id,
-            user_name=user_data["name"],
-            system_prompt=prompt
-        )
+        return "Я услышал ваш запрос. Пока это тестовый ответ локального Джарвиса."
 
-
-class LLMEngineMock:
-    """Заглушка модуля Г: Qwen2.5 через rknn-llm или llama.cpp"""
-
-    async def generate_response(
-        self,
-        system_prompt: str,
-        user_query: str
-    ) -> str:
-        logging.info("LLM: Генерация ответа...")
-        await asyncio.sleep(0.8)
-        return "Алексей, сегодня в 14:00 у вас защита проекта на Firefly RK3588S, а в 18:00 спортзал."
-
-
-# =============================================================================
-# ОРКЕСТРАТОР (Задача А)
-# =============================================================================
 
 class JarvisOrchestrator:
     """
-    Главный цикл управления системой Джарвис.
-    Управляет состояниями: IDLE -> RECORDING -> PROCESSING -> SPEAKING -> IDLE
+    Главный цикл:
+
+    Wake word
+        -> запись команды
+        -> параллельно: Speaker ID + STT
+        -> memory.build_context(user_id, transcript)
+        -> LLM.generate(ctx.to_messages())
+        -> memory.record_answer(user_id, transcript, answer)
+        -> TTS
     """
 
-    def __init__(self):
-        # Инициализация модулей (замените моки на реальные классы)
-        self.voice = AudioEngine()       # <-- ИНТЕГРИРОВАНО: AudioEngine из audio_module
-        self.db = UserDatabaseMock()     # <-- UserDatabase() после готовности модуля Ц
-        self.llm = LLMEngineMock()       # <-- LLMEngine() после готовности модуля Г
+    def __init__(self) -> None:
+        self.voice = AudioEngine()
+        self.llm = LLMEngineMock()
         self.is_running = True
 
-    async def run_cycle(self):
-        """Основной бесконечный цикл обработки запросов"""
+    async def process_command(self, audio_frames: bytes) -> None:
+        """
+        Обрабатывает один аудиофрагмент после wake word и VAD.
+        Speaker ID и STT стартуют параллельно.
+        """
+
+        started_at = time.perf_counter()
+
+        speaker_task = asyncio.create_task(
+            self.voice.identify_speaker(audio_frames)
+        )
+        stt_task = asyncio.create_task(
+            self.voice.speech_to_text(audio_frames)
+        )
+
+        speaker_result, transcript = await asyncio.gather(
+            speaker_task,
+            stt_task,
+        )
+
+        if not isinstance(speaker_result, SpeakerResult):
+            raise TypeError(
+                "Метод identify_speaker() должен возвращать SpeakerResult "
+                "из contracts.py"
+            )
+
+        transcript = transcript.strip()
+
+        if not transcript:
+            await self.voice.play_tts(
+                "Извините, я не смог разобрать команду. Повторите, пожалуйста."
+            )
+            return
+
+        user_id = speaker_result.user_id
+
+        logging.info(
+            "Speaker ID: %s | confidence=%.2f | transcript=%r",
+            speaker_result.user_name,
+            speaker_result.confidence,
+            transcript,
+        )
+
+        # Модуль Ц:
+        # Собирает system prompt, пользовательские факты и историю диалога.
+        # user_id может быть None, если голос не распознан.
+        ctx = memory.build_context(user_id, transcript)
+
+        # Модуль Г:
+        # Получает готовый стандартный список chat messages.
+        messages = ctx.to_messages()
+        answer = await self.llm.generate(messages)
+
+        answer = answer.strip()
+
+        if not answer:
+            answer = "Извините, я не смог подготовить ответ."
+
+        # Модуль Ц:
+        # Сохраняет вопрос и ответ в историю конкретного пользователя.
+        # Для неизвестного пользователя user_id == None;
+        # модуль памяти должен корректно это обработать.
+        memory.record_answer(user_id, transcript, answer)
+
+        total_latency = time.perf_counter() - started_at
+
+        logging.info(
+            "Ответ готов за %.2f с | user_id=%r | answer=%r",
+            total_latency,
+            user_id,
+            answer,
+        )
+
+        await self.voice.play_tts(answer)
+
+    async def run(self) -> None:
+        """Бесконечный цикл голосового ассистента."""
+
         logging.info("=" * 60)
-        logging.info("Джарвис запущен. Ожидание команды...")
+        logging.info("Джарвис запущен. Ожидание wake word...")
         logging.info("=" * 60)
 
         while self.is_running:
             try:
-                # --- ШАГ 1: Ожидание активационной фразы ---
+                # 1. Ожидание слова «Джарвис»
                 await self.voice.wait_for_wake_word()
 
-                # --- ШАГ 2: Запись пользовательской фразы ---
+                # 2. Запись команды после wake word, завершение через VAD
                 audio_frames = await self.voice.record_phrase()
 
-                t_start = time.perf_counter()
+                if not audio_frames:
+                    logging.warning("Аудиофрагмент пустой. Возврат к ожиданию.")
+                    continue
 
-                # --- ШАГ 3: Параллельный запуск Speaker ID (на NPU) и STT ---
-                speaker_task = asyncio.create_task(
-                    self.voice.identify_speaker(audio_frames)
-                )
-                stt_task = asyncio.create_task(
-                    self.voice.speech_to_text(audio_frames)
-                )
+                # 3–6. Полный pipeline
+                await self.process_command(audio_frames)
 
-                speaker_res, transcript = await asyncio.gather(
-                    speaker_task,
-                    stt_task
-                )
-
-                logging.info(
-                    f"Распознан: {speaker_res.user_name} "
-                    f"(уверенность: {speaker_res.confidence:.2f}) | "
-                    f"Текст: '{transcript}'"
-                )
-
-                # --- ШАГ 4: Извлечение профиля из БД (RAG) ---
-                context = await self.db.get_user_context(speaker_res, transcript)
-                logging.info(f"Пользователь: {context.user_name}")
-
-                # --- ШАГ 5: Генерация ответа LLM ---
-                reply_text = await self.llm.generate_response(
-                    context.system_prompt,
-                    transcript
-                )
-
-                latency = time.perf_counter() - t_start
-                logging.info(f"Общее время обработки до озвучки: {latency:.2f} с")
-
-                # --- ШАГ 6: Воспроизведение ответа в динамик ---
-                await self.voice.play_tts(reply_text)
+            except asyncio.CancelledError:
+                raise
 
             except KeyboardInterrupt:
-                logging.info("Оркестратор остановлен пользователем.")
-                self.is_running = False
-                break
+                self.stop()
 
-            except Exception as e:
-                logging.error(f"Ошибка в цикле оркестратора: {e}", exc_info=True)
-                await asyncio.sleep(1.0)
+            except Exception:
+                logging.exception(
+                    "Ошибка в обработке команды. Возврат к ожиданию wake word."
+                )
 
-    def stop(self):
-        """Метод для остановки оркестратора"""
+                try:
+                    await self.voice.play_tts(
+                        "Произошла ошибка. Я снова готов слушать."
+                    )
+                except Exception:
+                    logging.exception("Не удалось озвучить сообщение об ошибке.")
+
+                await asyncio.sleep(0.5)
+
+    def stop(self) -> None:
+        """Запрашивает корректную остановку приложения."""
         self.is_running = False
 
 
-# =============================================================================
-# ТОЧКА ВХОДА
-# =============================================================================
-
-async def main():
+async def main() -> None:
     orchestrator = JarvisOrchestrator()
+
     try:
-        await orchestrator.run_cycle()
+        await orchestrator.run()
     except KeyboardInterrupt:
-        logging.info("Получен сигнал остановки (Ctrl+C).")
+        logging.info("Остановка по Ctrl+C.")
     finally:
         orchestrator.stop()
         logging.info("Джарвис завершил работу.")
