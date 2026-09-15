@@ -2,18 +2,10 @@
 app.py — Оркестратор проекта Джарвис (Задача А).
 Собирает все модули в единое приложение, управляет циклом состояний.
 
-ИНСТРУКЦИЯ ПО ИНТЕГРАЦИИ МОДУЛЯ Б (AUDIO):
-1. Подключите репозиторий друга как git submodule:
-   git submodule add https://github.com/sheelestun/Edge_NSU_b_part orchestrator/audio_module
-   git commit -m "Add audio module submodule"
-   git push
-
-2. Раскомментируйте импорт в секции IMPORTS ниже:
-   # from audio_module import AudioEngine  # <-- РАСКОММЕНТИРОВАТЬ ПОСЛЕ SUBMODULE
-
-3. Замените заглушку в __init__:
-   # self.voice = AudioEngineMock()  # <-- ЗАКОММЕНТИРОВАТЬ
-   self.voice = AudioEngine()        # <-- РАСКОММЕНТИРОВАТЬ
+ИНТЕГРАЦИЯ МОДУЛЕЙ:
+- Модуль Б (аудио): интегрирован как git submodule из Edge_NSU_b_part
+- Модуль Ц (БД): раскомментировать import при готовности
+- Модуль Г (LLM): раскомментировать import при готовности
 """
 
 import asyncio
@@ -25,11 +17,11 @@ from typing import Optional
 from contracts import SpeakerResult, UserContext
 
 # =============================================================================
-# IMPORTS: Раскомментируйте после подключения модулей
+# IMPORTS: Модули
 # =============================================================================
 
 # Модуль Б (аудио): git submodule из Edge_NSU_b_part
-# from audio_module import AudioEngine  # <-- РАСКОММЕНТИРОВАТЬ ПОСЛЕ: git submodule add ...
+from audio_module import AudioEngine  # <-- ИНТЕГРИРОВАНО
 
 # Модуль Ц (БД)
 # from database_module import UserDatabase  # <-- РАСКОММЕНТИРОВАТЬ ПРИ ГОТОВНОСТИ
@@ -142,9 +134,9 @@ class JarvisOrchestrator:
 
     def __init__(self):
         # Инициализация модулей (замените моки на реальные классы)
-        self.voice = AudioEngineMock()       # <-- AudioEngine() после интеграции
-        self.db = UserDatabaseMock()         # <-- UserDatabase() после готовности
-        self.llm = LLMEngineMock()           # <-- LLMEngine() после готовности
+        self.voice = AudioEngine()       # <-- ИНТЕГРИРОВАНО: AudioEngine из audio_module
+        self.db = UserDatabaseMock()     # <-- UserDatabase() после готовности модуля Ц
+        self.llm = LLMEngineMock()       # <-- LLMEngine() после готовности модуля Г
         self.is_running = True
 
     async def run_cycle(self):
