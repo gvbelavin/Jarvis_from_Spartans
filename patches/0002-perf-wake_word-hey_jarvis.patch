@@ -1,0 +1,48 @@
+From 1529b979af28d1805e6d12e822b775f0828855b5 Mon Sep 17 00:00:00 2001
+From: LessVegetables <57289239+LessVegetables@users.noreply.github.com>
+Date: Wed, 16 Sep 2026 15:17:13 +0700
+Subject: [PATCH 2/2] =?UTF-8?q?perf(wake=5Fword):=20=D0=B3=D1=80=D1=83?=
+ =?UTF-8?q?=D0=B7=D0=B8=D1=82=D1=8C=20=D1=82=D0=BE=D0=BB=D1=8C=D0=BA=D0=BE?=
+ =?UTF-8?q?=20=D0=BC=D0=BE=D0=B4=D0=B5=D0=BB=D1=8C=20hey=5Fjarvis?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Model(inference_framework="onnx") без wakeword_models поднимает
+ONNX-сессию на все шесть предобученных моделей openWakeWord, хотя
+detect() читает ровно один ключ — hey_jarvis. Замерено: 142 МБ RSS
+против 121 МБ.
+
+Главное не память, а установка на плате: если хоть одного из шести
+файлов нет, конструктор падает с NO_SUCHFILE. С явным списком на
+плату достаточно скачать одну модель вместо всех шести.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ wake_word.py | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/wake_word.py b/wake_word.py
+index 4e402c0..bdd3ff0 100644
+--- a/wake_word.py
++++ b/wake_word.py
+@@ -2,7 +2,15 @@ from openwakeword.model import Model
+ 
+ import config as cfg
+ 
+-model = Model(inference_framework="onnx")
++# Без wakeword_models openWakeWord поднимает ONNX-сессию на КАЖДУЮ
++# предобученную модель (alexa, hey_mycroft, hey_rhasspy, timer, weather),
++# хотя используется ровно одна. Замерено: 142 МБ RSS против 121 МБ.
++#
++# Важнее другое: при отсутствии любого из шести файлов конструктор падает
++# с NO_SUCHFILE. То есть на плате пришлось бы тянуть все модели
++# (openwakeword.utils.download_models() без аргументов), а не одну:
++#   python -c "import openwakeword.utils as u; u.download_models(['hey_jarvis'])"
++model = Model(wakeword_models=["hey_jarvis"], inference_framework="onnx")
+ 
+ 
+ def detect(audio):
+-- 
+2.50.1 (Apple Git-155)
+
