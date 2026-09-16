@@ -14,6 +14,8 @@
 | `llm_adapter.py` | Обёртка локальной LLM к контракту `generate(messages)` (модуль Г) |
 | `mocks_for_testing.py` | Заглушки для запуска без железа |
 | `check_integration.py` | Офлайн-проверка связки (22 проверки) |
+| `indicator.py` | LED-индикатор + кнопка mute на ESP32 (модуль 5) |
+| `indicating_audio.py` | Обёртка над audio, шлющая состояния на индикатор |
 | `requirements.txt` | Зависимости оркестратора |
 
 Модули Б и Ц подключены **git submodule**:
@@ -159,6 +161,30 @@ python app.py --device 2 --record-timeout 8 --once --log-level DEBUG
 `anton` / `masha`. Если это разные строки, личные данные молча не
 подтянутся. `app.py` предупреждает об этом в логе, а связывает ID
 ключ `--user-map`.
+
+### Модуль 5 — индикатор на ESP32
+
+ESP32 подключён по USB и показывает на LED текущее состояние оркестратора
+(`idle`, `listening`, `thinking`, `speaking`, `guest`, `error`), плюс кнопка
+BOOT на плате работает как мьют микрофона: пока mute=on, оркестратор не
+запускает wake word и не открывает микрофон.
+
+Обёртка `IndicatingAudioAdapter` вставляет `set_state()` в те точки внутри
+`listen_once()`, которые снаружи не видны (между wake word и записью,
+между записью и STT). `AudioAdapter` и `AudioEngineMock` при этом не
+редактируются.
+
+Если платы нет — `IndicatorEsp32.open()` молча деградирует до заглушки,
+пайплайн работает как раньше. Явное отключение — `--no-indicator`.
+
+```bash
+python app.py --mock --once                          # с реальной платой (если есть)
+python app.py --mock --once --no-indicator           # заведомо без платы
+python app.py --mock --once --indicator-port /dev/ttyUSB1
+```
+
+Прошивка и Python-класс живут в отдельном репозитории Степана; сюда
+попадает только клиентская обёртка (`indicator.py`) и обёртка audio.
 
 ## Ограничения
 

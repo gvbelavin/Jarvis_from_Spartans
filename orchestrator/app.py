@@ -32,6 +32,9 @@ from pathlib import Path
 from typing import Any, Optional
 
 from contracts import SpeakerResult
+from indicator import IndicatorEsp32, IndicatorNoop
+from indicating_audio import IndicatingAudioAdapter
+from settings import INDICATOR_PORT
 
 # Корень папки orchestrator
 BASE_DIR = Path(__file__).resolve().parent
@@ -78,13 +81,29 @@ class JarvisOrchestrator:
         audio: Any,
         llm: Any,
         memory: Any,
+        indicator: Optional[Any] = None,
         warn_on_unknown_profile: bool = True,
     ) -> None:
         self.audio = audio
         self.llm = llm
         self.memory = memory
+        self.indicator = indicator if indicator is not None else IndicatorNoop()
         self.warn_on_unknown_profile = warn_on_unknown_profile
         self.is_running = True
+
+        # Кнопка BOOT на плате индикатора переключает микрофон.
+        # Пока mute=True — оркестратор не вызывает listen_once (аудиомодуль
+        # не открывает микрофон, wake word не запускается).
+        self.mute = False
+        self.indicator.set_mute_callback(self._on_mute_change)
+
+    async def _on_mute_change(self, muted: bool) -> None:
+        """Callback от IndicatorEsp32: пользователь нажал кнопку BOOT."""
+        self.mute = muted
+        logger.info(
+            "Микрофон %s (кнопка на плате индикатора).",
+            "ВЫКЛЮЧЕН" if muted else "включён",
+        )
 
     # ------------------------------------------------------------------
     # Одна команда
@@ -109,6 +128,13 @@ class JarvisOrchestrator:
             return
 
         user_id: Optional[str] = speaker_result.user_id
+
+        # Гостя подсвечиваем отдельным паттерном на индикаторе —
+        # пользователь физически видит, что его не узнали. Обёртка audio
+        # уже поставила "thinking" после записи; guest перекрывает его
+        # на время построения контекста и запроса к LLM.
+        if user_id is None:
+            await self.indicator.set_state("guest")
 
         # 3. Память и RAG: профиль, расписание, факты, история — всё
         #    именно этого пользователя. user_id=None (гость) поддержан
@@ -178,6 +204,9 @@ class JarvisOrchestrator:
     async def run(self, max_commands: Optional[int] = None) -> None:
         """Бесконечный цикл, либо ограниченное число команд при max_commands."""
 
+        await self.indicator.open()
+        await self.indicator.set_state("idle")
+
         logger.info("=" * 64)
         logger.info("Джарвис запущен. Ожидание wake word...")
         logger.info("=" * 64)
@@ -190,12 +219,25 @@ class JarvisOrchestrator:
                     logger.info("Попыток обработки: %d. Завершаю.", attempts)
                     break
 
+                # Микрофон замьючен по кнопке — не тратим ресурсы на
+                # запуск wake word / записи. Считаем это НЕ попыткой,
+                # чтобы --once не заканчивался «пустым» кругом при mute.
+                if self.mute:
+                    await asyncio.sleep(0.3)
+                    continue
+
                 # Считаем попытки, а не только успехи: иначе сбойная команда
                 # в режиме --once зацикливала бы оркестратор.
                 attempts += 1
 
                 try:
                     await self.process_once()
+
+                    # Ответ произнесён (или пропущен) — возвращаемся в idle.
+                    # IndicatingAudioAdapter уже мог поставить idle сам после
+                    # TTS, но лишний вызов безопасен и покрывает ветку с
+                    # пустым transcript, когда TTS играет NO_SPEECH_PHRASE.
+                    await self.indicator.set_state("idle")
 
                 except asyncio.CancelledError:
                     raise
@@ -209,9 +251,15 @@ class JarvisOrchestrator:
                         "Ошибка при обработке команды. "
                         "Возврат к ожиданию wake word."
                     )
+                    await self.indicator.set_state("error")
                     await self._say_safely(ERROR_PHRASE)
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(1.5)
+                    await self.indicator.set_state("idle")
         finally:
+            try:
+                await self.indicator.close()
+            except Exception:
+                logger.debug("Ошибка при закрытии индикатора.", exc_info=True)
             self.close()
 
     async def _say_safely(self, phrase: str) -> None:
@@ -262,8 +310,20 @@ def parse_user_map(raw: Optional[str]) -> dict[str, str]:
     return mapping
 
 
+def _build_indicator(args: argparse.Namespace) -> Any:
+    """
+    Создаёт индикатор (ESP32 на USB-serial) или заглушку.
+
+    Флаг --no-indicator полностью отключает интеграцию с платой —
+    полезно для запуска на машине, где ESP32 не подключён вовсе.
+    """
+    if getattr(args, "no_indicator", False):
+        return IndicatorNoop()
+    return IndicatorEsp32(port=args.indicator_port)
+
+
 def build_orchestrator(args: argparse.Namespace) -> JarvisOrchestrator:
-    """Собирает реальный оркестратор: модуль Б + модуль Ц + модуль Г."""
+    """Собирает реальный оркестратор: модуль Б + модуль Ц + модуль Г + индикатор."""
 
     from audio_adapter import AudioAdapter, check_ready
     from llm_adapter import LLMAdapter, load_llm_engine
@@ -306,7 +366,18 @@ def build_orchestrator(args: argparse.Namespace) -> JarvisOrchestrator:
             )
             llm = LLMAdapter(LLMNotConnected())
 
-    return JarvisOrchestrator(audio=audio, llm=llm, memory=memory)
+    # --- Модуль 5: индикатор ---------------------------------------------
+    # Обёртка нужна, чтобы вставить set_state в те точки внутри
+    # listen_once, которые скрыты от оркестратора.
+    indicator = _build_indicator(args)
+    audio = IndicatingAudioAdapter(audio, indicator)
+
+    return JarvisOrchestrator(
+        audio=audio,
+        llm=llm,
+        memory=memory,
+        indicator=indicator,
+    )
 
 
 def build_mock_orchestrator(args: argparse.Namespace) -> JarvisOrchestrator:
@@ -333,15 +404,22 @@ def build_mock_orchestrator(args: argparse.Namespace) -> JarvisOrchestrator:
     else:
         warn_on_unknown_profile = True
 
-    return JarvisOrchestrator(
-        audio=AudioEngineMock(
+    indicator = _build_indicator(args)
+    audio = IndicatingAudioAdapter(
+        AudioEngineMock(
             transcript=args.mock_transcript,
             max_commands=args.max_commands,
         ),
+        indicator,
+    )
+
+    return JarvisOrchestrator(
+        audio=audio,
         # Заглушка LLM синхронная — оборачиваем её тем же адаптером,
         # что и реальный модуль Г: так проверяется и путь to_thread.
         llm=LLMAdapter(LLMEngineMock()),
         memory=memory,
+        indicator=indicator,
         warn_on_unknown_profile=warn_on_unknown_profile,
     )
 
@@ -400,6 +478,20 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         "--llm-class",
         default="LLMEngine",
         help="имя класса LLM в модуле Г (по умолчанию LLMEngine)",
+    )
+    parser.add_argument(
+        "--indicator-port",
+        default=INDICATOR_PORT,
+        help=(
+            f"serial-порт LED-индикатора (модуль 5); по умолчанию "
+            f"{INDICATOR_PORT}. Если порт недоступен, оркестратор "
+            f"стартует без индикации."
+        ),
+    )
+    parser.add_argument(
+        "--no-indicator",
+        action="store_true",
+        help="полностью отключить интеграцию с платой индикатора",
     )
     parser.add_argument(
         "--log-level",
