@@ -62,6 +62,7 @@ class IndicatorEsp32:
         self._on_mute_change = on_mute_change
         self._reader_task: Optional[asyncio.Task] = None
         self._stop_reader = False
+        self._ready_event = asyncio.Event()
 
     async def open(self) -> None:
         """Открыть порт и запустить reader-таск. Идемпотентно."""
@@ -77,8 +78,17 @@ class IndicatorEsp32:
             return
 
         self._stop_reader = False
+        self._ready_event.clear()
         loop = asyncio.get_running_loop()
         self._reader_task = loop.create_task(self._reader_loop())
+
+        # Открытие порта на большинстве систем дёргает DTR/RTS и
+        # ресетит плату. Ждём строку READY (до 2 с) — иначе первая же
+        # команда улетит в загружающийся ROM-bootloader и потеряется.
+        try:
+            await asyncio.wait_for(self._ready_event.wait(), timeout=2.0)
+        except asyncio.TimeoutError:
+            logger.debug("Indicator: no READY within 2s, продолжаю без ожидания")
 
     def _open_blocking(self) -> None:
         s = serial.Serial()
@@ -182,6 +192,9 @@ class IndicatorEsp32:
 
     async def _handle_line(self, text: str) -> None:
         logger.debug("Indicator: <- %s", text)
+        if text == "READY":
+            self._ready_event.set()
+            return
         if not text.startswith("EVT"):
             return
         # Формат: "EVT btn_short mute=on" / "EVT btn_short mute=off" / "EVT btn_long"
