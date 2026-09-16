@@ -43,13 +43,6 @@ python3 tools/export_embedding_model.py     # пишет models/
 ```bash
 git push
 ```
-
-> **Важно про подмодуль Б.** В `orchestrator/audio_module` лежат два
-> исправления (см. раздел 7). Репозиторий чужой — `sheelestun/Edge_NSU_b_part`.
-> Пока они не влиты, указатель подмодуля в main-репозитории на них ставить
-> НЕЛЬЗЯ: на плате `git submodule update` не найдёт этих коммитов.
-> До вливания правки накатываются на плате патчами из `patches/`.
-
 ---
 
 ## 2. Плата: доступ
@@ -134,12 +127,6 @@ cd ~/EDGE/24943/spartains && git clone --recurse-submodules <url> jarvis && cd j
 
 ```bash
 git pull && git submodule update --init --recursive
-```
-
-Правки модуля Б, пока они не влиты в репозиторий Даниилша:
-
-```bash
-cd orchestrator/audio_module && git apply ../../patches/*.patch && cd ../..
 ```
 
 Веса — с ноутбука (команды выполняются **на ноутбуке**):
