@@ -31,7 +31,7 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
-from contracts import GUEST_NAME, SpeakerResult
+from contracts import SpeakerResult
 
 # Корень папки orchestrator
 BASE_DIR = Path(__file__).resolve().parent
@@ -265,12 +265,27 @@ def parse_user_map(raw: Optional[str]) -> dict[str, str]:
 def build_orchestrator(args: argparse.Namespace) -> JarvisOrchestrator:
     """Собирает реальный оркестратор: модуль Б + модуль Ц + модуль Г."""
 
-    from audio_adapter import AudioAdapter
+    from audio_adapter import AudioAdapter, check_ready
     from llm_adapter import LLMAdapter, load_llm_engine
 
     import jarvis_memory as memory
 
     # --- Модуль Б: аудио -------------------------------------------------
+    # Проверяем готовность ДО первого обращения к железу: иначе сырой
+    # ModuleNotFoundError прилетит из отдельного потока, и по логу будет
+    # непонятно, чего именно не хватает.
+    problems = check_ready()
+
+    if problems:
+        logger.error("Аудиомодуль (модуль Б) не готов к запуску:")
+        for problem in problems:
+            logger.error("  - %s", problem)
+        logger.error(
+            "Подробности по установке: orchestrator/audio_module/README.md. "
+            "Проверить связку без железа: python app.py --mock --once"
+        )
+        raise SystemExit(2)
+
     audio = AudioAdapter(
         device=args.device,
         record_timeout=args.record_timeout,

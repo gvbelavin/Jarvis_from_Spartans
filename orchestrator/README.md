@@ -9,18 +9,46 @@
 |---|---|
 | `app.py` | Главный цикл: wake word → STT → память → LLM → TTS |
 | `contracts.py` | Контракты интерфейсов между модулями |
+| `settings.py` | Настройки оркестратора (пути к подмодулям, таймаут записи) |
 | `audio_adapter.py` | Тонкий адаптер над git submodule `audio_module` (модуль Б) |
 | `llm_adapter.py` | Обёртка локальной LLM к контракту `generate(messages)` (модуль Г) |
 | `mocks_for_testing.py` | Заглушки для запуска без железа |
-| `check_integration.py` | Офлайн-проверка связки (15 проверок) |
+| `check_integration.py` | Офлайн-проверка связки (22 проверки) |
 | `requirements.txt` | Зависимости оркестратора |
 
-Модули Б и Ц подключены **git submodule** и не изменялись:
+Модули Б и Ц подключены **git submodule**:
 
 ```
 orchestrator/audio_module/    → sheelestun/Edge_NSU_b_part   (модуль Б)
 orchestrator/memory_module/   → LessVegetables/jarvis-memory (модуль Ц)
 ```
+
+### Почему `settings.py`, а не `config.py`
+
+Подмодуль аудио содержит собственный `config.py` и импортирует его как
+top-level (`import config`), поэтому `audio_adapter.py` добавляет папку
+`audio_module` в `sys.path`. Лежи настройки оркестратора в `config.py`,
+возникла бы коллизия имён: `import config` резолвился бы в зависимости от
+порядка импортов. Имя `settings` исключает это.
+
+Параметры аудиомодуля (`SPEAKER_THRESHOLD`, `SAMPLE_RATE`, `CHUNK_SIZE`,
+`SILENCE_CHUNKS`) в оркестраторе **не дублируются**: единственный источник
+правды — `audio_module/config.py`, адаптер читает их оттуда.
+
+### Известное расхождение в подмодуле Б
+
+В рабочей копии `audio_module` есть **незакоммиченная** правка `config.py`:
+
+```diff
+-SILENCE_CHUNKS = 13                                          # было (эффективное значение)
++SILENCE_CHUNKS = int(SILENCE_DURATION * SAMPLE_RATE / CHUNK_SIZE) + 1   # стало 7
+```
+
+Один блок = 80 мс, поэтому окно тишины, по которому модуль Б завершает
+запись, изменилось примерно с **1.04 с на 0.56 с**. Это правка алгоритма
+чужого модуля: команды могут обрываться на паузе внутри фразы. Расхождение
+оставлено как есть осознанно — вернуть прежнее поведение можно, вернув
+`SILENCE_CHUNKS = 13`.
 
 ## Реальные интерфейсы (сверено с кодом, не с ТЗ)
 
@@ -89,7 +117,7 @@ memory.record_answer(user_id, transcript, answer)
 
 ```bash
 cd orchestrator
-python check_integration.py     # 15 проверок логики
+python check_integration.py     # 22 проверки логики и адаптера
 python app.py --mock --once     # один прогон на заглушках
 ```
 
@@ -99,6 +127,10 @@ python app.py --mock --once     # один прогон на заглушках
 положить `ggml-base.bin`, модель Piper и эталонные записи в
 `audio_module/audio_dataset/references/<user_id>/`, создать `paths.py`
 (он в `.gitignore` подмодуля), выставить `DEVICE_NUMBER` в `audio_module/config.py`.
+
+`app.py` проверяет готовность модуля Б **до** первого обращения к железу и
+вместо сырого `ModuleNotFoundError` печатает список того, чего не хватает.
+Если чего-то нет, запуск завершается с кодом 2 и инструкцией.
 
 ```bash
 cd orchestrator

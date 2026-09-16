@@ -14,7 +14,13 @@ check_integration.py — офлайн-проверка связки оркест
 3. Пустой transcript приводит к фразе «я не расслышал» и не доходит до LLM.
 4. история: record_answer действительно попадает в следующий
    ctx.to_messages() как пары user/assistant (многоходовой диалог).
-5. LLM получает корректный chat-формат, а не строку.
+5. LLM получает корректный chat-формат, а не строка.
+6. `audio_adapter` ИМПОРТИРУЕТСЯ и приводит ответ модуля Б к SpeakerResult.
+
+Проверка 6 добавлена после реальной поломки: адаптер обращался к
+`from config import ...`, а файла `orchestrator/config.py` не существовало.
+Режим `--mock` и проверки 1-5 этого не замечали, потому что не трогают
+адаптер, — падал только запуск на железе. Теперь такой разрыв ловится здесь.
 
 Модуль памяти берётся НАСТОЯЩИЙ (`jarvis_memory`), заглушка только
 у аудио и у LLM. Поэтому проверяется именно тот код, что пойдёт на плату.
@@ -171,6 +177,77 @@ async def main() -> int:
     except TypeError:
         rejected = True
     check(rejected, "строка вместо списка сообщений отвергается адаптером")
+
+    # --- 6. Адаптер модуля Б импортируется и приводит ответы ---------------
+    # Без этой проверки поломка вида `ModuleNotFoundError` в audio_adapter.py
+    # не видна: и --mock, и проверки выше его не трогают.
+    try:
+        import audio_adapter
+        from settings import AUDIO_MODULE_DIR, MEMORY_MODULE_DIR
+
+        imported = True
+    except Exception as exc:  # noqa: BLE001
+        print(f"       import audio_adapter: {type(exc).__name__}: {exc}")
+        imported = False
+
+    check(imported, "audio_adapter импортируется (реальный режим запустится)")
+
+    if imported:
+        check(
+            AUDIO_MODULE_DIR.is_dir(),
+            f"папка модуля Б существует: {AUDIO_MODULE_DIR.name}",
+        )
+        check(
+            (MEMORY_MODULE_DIR / "jarvis_memory").is_dir(),
+            "пакет jarvis_memory на месте",
+        )
+
+        adapter = audio_adapter.AudioAdapter()
+
+        # Неузнанный голос: модуль Б отдаёт user_name=None.
+        # Раньше это проходило как user_name=None и ломало контракт.
+        unknown = adapter._to_speaker_result(
+            {"user_id": None, "user_name": None, "confidence": 0.31}
+        )
+        check(
+            unknown.user_id is None and unknown.user_name == "Гость",
+            "неузнанный голос -> гость с непустым user_name",
+        )
+
+        # Уверенный голос проходит как есть.
+        known = adapter._to_speaker_result(
+            {"user_id": "anton", "user_name": "anton", "confidence": 0.88}
+        )
+        check(
+            known.user_id == "anton" and known.confidence == 0.88,
+            "узнанный голос -> его user_id и confidence",
+        )
+
+        # Низкая уверенность ниже порога модуля Б -> гость.
+        weak = adapter._to_speaker_result(
+            {"user_id": "anton", "user_name": "anton", "confidence": 0.2}
+        )
+        check(
+            weak.user_id is None,
+            "уверенность ниже SPEAKER_THRESHOLD модуля Б -> гость",
+        )
+
+        # Переопределение ID через --user-map.
+        mapped = audio_adapter.AudioAdapter(
+            user_id_map={"shelestov": "anton"}
+        )._to_speaker_result(
+            {"user_id": "shelestov", "user_name": None, "confidence": 0.9}
+        )
+        check(
+            mapped.user_id == "anton",
+            "--user-map связывает ID модуля Б с профилем памяти",
+        )
+
+        # Порог берётся из config.py модуля Б, а не из копии в оркестраторе.
+        check(
+            audio_adapter._speaker_threshold() == 0.6,
+            "SPEAKER_THRESHOLD читается из модуля Б (0.6)",
+        )
 
     print()
     if failures:

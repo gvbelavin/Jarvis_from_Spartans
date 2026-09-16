@@ -42,7 +42,7 @@ import asyncio
 import importlib
 import inspect
 import logging
-from typing import Any, AsyncIterator, Callable, Iterable, Optional
+from typing import Any, AsyncIterator, Callable, Iterable
 
 logger = logging.getLogger(__name__)
 
