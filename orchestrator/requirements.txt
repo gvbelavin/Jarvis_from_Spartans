@@ -1,15 +1,21 @@
-# requirements.txt — Зависимости для оркестратора (Задача А)
+# requirements.txt — зависимости оркестратора (Задача А)
 
-# Асинхронность (встроена в Python 3.7+)
-# asyncio
-
-# Логирование (встроено в Python)
-# logging
-
-# Для работы с данными
-# dataclasses (встроено в Python 3.7+)
-
-# Примечание:
-# Реальные зависимости (audio_module, database_module, llm_module)
-# будут добавлены участниками Б, Ц, Г в их собственные requirements-файлы.
-# Оркестратор использует только стандартную библиотеку Python.
+# Оркестратор использует только стандартную библиотеку Python:
+#   asyncio, logging, dataclasses, argparse, pathlib, typing
+#
+# Реальные зависимости приходят с подмодулями:
+#
+#   orchestrator/audio_module/requirements.txt     (модуль Б)
+#       numpy sounddevice soundfile openwakeword
+#       wespeaker torch torchaudio piper-tts pywhispercpp
+#
+#   orchestrator/memory_module/requirements.txt    (модуль Ц)
+#       пока пусто; на шаге 5 появятся sqlite-vec и onnxruntime,
+#       на шаге 6 — requests
+#
+#   модуль Г (LLM): зависимостей пока нет. Инференс локальный,
+#   облачные API и ключи не используются.
+#
+# Установка:
+#   python -m pip install -r audio_module/requirements.txt
+#   python -m pip install -r memory_module/requirements.txt
