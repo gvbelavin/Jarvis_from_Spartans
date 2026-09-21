@@ -49,6 +49,8 @@ def _speaker_threshold() -> float:
 # Импорты, которые модуль Б выполняет на уровне модуля. Ровно они решают,
 # запустится ли аудиотракт вообще: без `wespeaker` не будет Speaker ID,
 # без `pywhispercpp` — STT, без `piper` — TTS.
+# `torchaudio` нужна WeSpeaker даже если `torch` уже стоит: без неё
+# `check_ready` раньше пропускал запуск, а `speaker.py` падал на импорте.
 _REQUIRED_MODULES = (
     ("numpy", "numpy"),
     ("sounddevice", "sounddevice"),
@@ -56,6 +58,7 @@ _REQUIRED_MODULES = (
     ("openwakeword.model", "openwakeword"),
     ("wespeaker", "wespeaker"),
     ("torch", "torch"),
+    ("torchaudio", "torchaudio"),
     ("pywhispercpp.model", "pywhispercpp"),
     ("piper", "piper-tts"),
 )
