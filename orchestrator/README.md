@@ -12,8 +12,9 @@
 | `settings.py` | Настройки оркестратора (пути к подмодулям, таймаут записи) |
 | `audio_adapter.py` | Тонкий адаптер над git submodule `audio_module` (модуль Б) |
 | `llm_adapter.py` | Обёртка локальной LLM к контракту `generate(messages)` (модуль Г) |
+| `llm_module.py` | HTTP-клиент RKLLM-сервера (`localhost:8080/v1/chat/completions`) |
 | `mocks_for_testing.py` | Заглушки для запуска без железа |
-| `check_integration.py` | Офлайн-проверка связки (22 проверки) |
+| `check_integration.py` | Офлайн-проверка связки (память, адаптеры, клиент LLM) |
 | `indicator.py` | LED-индикатор + кнопка mute на ESP32 (модуль 5) |
 | `indicating_audio.py` | Обёртка над audio, шлющая состояния на индикатор |
 | `requirements.txt` | Зависимости оркестратора |
@@ -103,15 +104,33 @@ memory.record_answer(user_id, transcript, answer)
 `user_id=None` поддержан самим модулем: он отдаёт нейтральный контекст и
 запрещает раскрывать личные данные. Ничего дописывать не потребовалось.
 
-### Модуль Г — LLM
+### Модуль Г — LLM (RKLLM-сервер на плате)
 
 Контракт один: `await llm.generate(messages: list[dict[str, str]]) -> str`.
 Системный промпт и вопрос отдельно **не** передаются — они уже внутри
 `ctx.to_messages()`.
 
-`LLMAdapter` вызывается с локальным движком и сам определяет, синхронный он
-или асинхронный. **Синхронный вызывается через `asyncio.to_thread`** — иначе
-генерация на 1–3 секунды заблокировала бы event loop оркестратора.
+Модуль Г поставлен не Python-пакетом, а HTTP-сервером Фёдора:
+пропатченный `flask_server.py` из `rknn-llm` слушает **порт 8080**
+(`~/rkllm_server/` на плате). `llm_module.LLMEngine` шлёт туда тот же
+JSON, что в инструкции:
+
+```python
+# эквивалент того, что делает LLMEngine.generate(ctx.to_messages())
+{"model": "rkllm", "messages": ctx.to_messages(), "stream": False}
+# POST http://localhost:8080/v1/chat/completions
+```
+
+`localhost` — потому что оркестратор и сервер живут на одной плате.
+VPN нужен только чтобы зайти на плату со своего компьютера.
+
+`LLMAdapter` сам определяет, синхронный движок или асинхронный.
+**Синхронный вызывается через `asyncio.to_thread`** — иначе генерация
+на ~3 с заблокировала бы event loop. Пока модель думает, оркестратор
+ставит индикатор в `thinking` и пишет в лог «Думаю...».
+
+Переопределение без правки кода: `JARVIS_LLM_URL`, `JARVIS_LLM_MODEL`,
+`JARVIS_LLM_TIMEOUT`.
 
 ## Запуск
 
@@ -119,7 +138,7 @@ memory.record_answer(user_id, transcript, answer)
 
 ```bash
 cd orchestrator
-python check_integration.py     # 22 проверки логики и адаптера
+python check_integration.py     # офлайн-проверка связки, без железа
 python app.py --mock --once     # один прогон на заглушках
 ```
 
@@ -137,10 +156,12 @@ python app.py --mock --once     # один прогон на заглушках
 ```bash
 cd orchestrator
 
-# когда модуль Г появится как orchestrator/llm_module/LLMEngine:
+# живой LLM-сервер на localhost:8080 подхватится сам (llm_module.LLMEngine)
+curl http://localhost:8080/v1/models
+python llm_module.py "Привет! Кратко: кто ты?"
 python app.py
 
-# либо указать свой модуль, либо без LLM — тогда ответит заглушка
+# другой движок, если понадобится
 python app.py --llm-module my_llm --llm-class MyEngine
 
 # связать ID говорящего модуля Б с профилем памяти
@@ -150,9 +171,10 @@ python app.py --user-map shelestov=anton,puchkov=masha
 python app.py --device 2 --record-timeout 8 --once --log-level DEBUG
 ```
 
-Если модуль Г ещё не подключён, оркестратор **не падает**: он сообщает об
-этом в лог и отвечает фразой-заглушкой. Связку аудио + память можно
-проверять уже сейчас.
+Если `llm_module.py` удалить, оркестратор **не падает**: отвечает
+фразой-заглушкой. Если файл на месте, а сервер на :8080 выключен —
+команда обработки ловит ошибку, говорит «произошла ошибка» и снова
+слушает wake word. Команда подъёма сервера есть в логе `LLMServerError`.
 
 ## Важное про ID говорящего
 

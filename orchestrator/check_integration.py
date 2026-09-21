@@ -2,7 +2,7 @@
 """
 check_integration.py — офлайн-проверка связки оркестратора.
 
-Запускается без микрофона, без аудиомоделей и без локальной LLM:
+Запускается без микрофона, без аудиомоделей и без живого RKLLM-сервера:
 
     python check_integration.py
 
@@ -16,6 +16,10 @@ check_integration.py — офлайн-проверка связки оркест
    ctx.to_messages() как пары user/assistant (многоходовой диалог).
 5. LLM получает корректный chat-формат, а не строка.
 6. `audio_adapter` ИМПОРТИРУЕТСЯ и приводит ответ модуля Б к SpeakerResult.
+7. `llm_module.LLMEngine` шлёт ctx.to_messages() на OpenAI-совместимый
+   эндпоинт и забирает choices[0].message.content. Сервер — заглушка
+   на localhost, живой NPU не нужен.
+8. На время генерации индикатор в состоянии thinking (гость — guest).
 
 Проверка 6 добавлена после реальной поломки: адаптер обращался к
 `from config import ...`, а файла `orchestrator/config.py` не существовало.
@@ -24,14 +28,26 @@ check_integration.py — офлайн-проверка связки оркест
 
 Модуль памяти берётся НАСТОЯЩИЙ (`jarvis_memory`), заглушка только
 у аудио и у LLM. Поэтому проверяется именно тот код, что пойдёт на плату.
+
+База — временный файл: на плате `JARVIS_DB` указывает на боевую sqlite,
+и этот скрипт её не должен ни сидировать, ни чистить.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import os
 import sys
+import tempfile
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from typing import Any, Optional
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -39,9 +55,14 @@ MEMORY_MODULE_DIR = BASE_DIR / "memory_module"
 if MEMORY_MODULE_DIR.exists() and str(MEMORY_MODULE_DIR) not in sys.path:
     sys.path.insert(0, str(MEMORY_MODULE_DIR))
 
+# До любого import jarvis_memory: иначе проверки сотрут боевую базу на плате.
+_TMP_DB = Path(tempfile.mkdtemp(prefix="jarvis-orch-")) / "test.db"
+os.environ["JARVIS_DB"] = str(_TMP_DB)
+
 from app import JarvisOrchestrator  # noqa: E402
 from contracts import SpeakerResult  # noqa: E402
-from llm_adapter import LLMAdapter, validate_messages  # noqa: E402
+from llm_adapter import LLMAdapter, load_llm_engine, validate_messages  # noqa: E402
+from llm_module import LLMEngine, LLMServerError  # noqa: E402
 from mocks_for_testing import AudioEngineMock, LLMEngineMock  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -50,12 +71,63 @@ logger = logging.getLogger("jarvis.check")
 SCHEDULE_QUESTION = "Какое у меня сегодня расписание?"
 
 
+class RecordingIndicator:
+    """Пишет вызовы set_state, чтобы проверить UX «думаю» без ESP32."""
+
+    def __init__(self) -> None:
+        self.states: list[str] = []
+
+    async def open(self) -> None:
+        return None
+
+    async def close(self) -> None:
+        return None
+
+    async def set_state(self, state: str) -> None:
+        self.states.append(state)
+
+    def set_mute_callback(self, callback: Any) -> None:
+        return None
+
+
+class _FakeRKLLM(BaseHTTPRequestHandler):
+    """OpenAI-совместитая заглушка /v1/chat/completions."""
+
+    last_body: dict | None = None
+
+    def do_POST(self) -> None:
+        length = int(self.headers.get("Content-Length", "0"))
+        body = json.loads(self.rfile.read(length).decode("utf-8"))
+        type(self).last_body = body
+        payload = json.dumps(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": "Короткий ответ модели.",
+                        }
+                    }
+                ]
+            }
+        ).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def log_message(self, format: str, *args: Any) -> None:  # noqa: A003
+        return None
+
+
 def make_orchestrator(
     memory,
     user_id,
     user_name,
     transcript=SCHEDULE_QUESTION,
     confidence=0.9,
+    indicator: Optional[Any] = None,
 ) -> JarvisOrchestrator:
     audio = AudioEngineMock(
         transcript=transcript,
@@ -69,6 +141,7 @@ def make_orchestrator(
         audio=audio,
         llm=LLMAdapter(LLMEngineMock()),
         memory=memory,
+        indicator=indicator,
         warn_on_unknown_profile=False,
     )
 
@@ -83,12 +156,16 @@ async def main() -> int:
             failures.append(message)
 
     import jarvis_memory as memory
+    from jarvis_memory import seed as memory_seed
 
+    memory_seed.seed()
     memory.clear()
 
     # --- 1. Разные пользователи, одинаковый вопрос ----------------------
-    anton = make_orchestrator(memory, "anton", "Антон")
-    masha = make_orchestrator(memory, "masha", "Маша")
+    anton_ind = RecordingIndicator()
+    masha_ind = RecordingIndicator()
+    anton = make_orchestrator(memory, "anton", "Антон", indicator=anton_ind)
+    masha = make_orchestrator(memory, "masha", "Маша", indicator=masha_ind)
 
     await anton.process_once()
     await masha.process_once()
@@ -109,9 +186,16 @@ async def main() -> int:
         "лекция" in anton_answer and "английский" in masha_answer,
         "в ответах разные расписания из памяти",
     )
+    check(
+        "thinking" in anton_ind.states,
+        "перед LLM индикатор в состоянии thinking",
+    )
 
     # --- 2. Гость --------------------------------------------------------
-    guest = make_orchestrator(memory, None, "Гость", confidence=0.1)
+    guest_ind = RecordingIndicator()
+    guest = make_orchestrator(
+        memory, None, "Гость", confidence=0.1, indicator=guest_ind
+    )
     await guest.process_once()
     guest_answer = guest.audio.spoken[-1]
 
@@ -124,6 +208,7 @@ async def main() -> int:
         "лекция" not in guest_answer and "английский" not in guest_answer,
         "гость не увидел чужое расписание",
     )
+    check("guest" in guest_ind.states, "неузнанный голос подсвечен как guest")
 
     # --- 3. Пустой transcript не доходит до LLM --------------------------
     silent = make_orchestrator(memory, "anton", "Антон", transcript="   ")
@@ -161,6 +246,10 @@ async def main() -> int:
         "последнее сообщение — текущий вопрос",
     )
     check(len(messages) == 4, "system + 2 сообщения истории + вопрос")
+    check(
+        "Антон" in messages[0]["content"],
+        "system-промпт из памяти содержит профиль говорящего",
+    )
 
     # --- 5. Формат сообщений валиден для LLM -----------------------------
     try:
@@ -248,6 +337,52 @@ async def main() -> int:
             audio_adapter._speaker_threshold() == 0.6,
             "SPEAKER_THRESHOLD читается из модуля Б (0.6)",
         )
+
+    # --- 7. Клиент RKLLM: ctx.to_messages() уходит на :8080 как есть ------
+    loaded = load_llm_engine()
+    check(
+        type(loaded._engine).__name__ == "LLMEngine",
+        "load_llm_engine() находит llm_module.LLMEngine",
+    )
+
+    _FakeRKLLM.last_body = None
+    httpd = HTTPServer(("127.0.0.1", 0), _FakeRKLLM)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    try:
+        url = f"http://127.0.0.1:{httpd.server_address[1]}/v1/chat/completions"
+        engine = LLMEngine(url=url, timeout=5)
+        payload_messages = memory.build_context(
+            "anton", SCHEDULE_QUESTION
+        ).to_messages()
+        answer = engine.generate(payload_messages)
+        body = _FakeRKLLM.last_body or {}
+        sent = body.get("messages") or []
+        roles = [item.get("role") for item in sent]
+        system_text = sent[0]["content"] if sent else ""
+
+        check(answer == "Короткий ответ модели.", "клиент забирает choices[0].message.content")
+        check(roles[:1] == ["system"] and roles[-1:] == ["user"], "на сервер уходят system и user")
+        check("Антон" in system_text, "до LLM доезжает system-промпт с профилем")
+        check(body.get("model") == "rkllm", "в запросе model=rkllm")
+        check(body.get("stream") is False, "stream=False: Piper ждёт целую фразу")
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+    downed = LLMEngine(url="http://127.0.0.1:1/v1/chat/completions", timeout=1)
+    try:
+        downed.generate([{"role": "user", "content": "ping"}])
+        unreachable = False
+        hint = ""
+    except LLMServerError as exc:
+        unreachable = True
+        hint = str(exc)
+    check(unreachable, "выключенный сервер даёт LLMServerError, а не сырой URLError")
+    check(
+        "flask_server.py" in hint and "8080" in hint,
+        "ошибка недоступности называет команду запуска сервера",
+    )
 
     print()
     if failures:

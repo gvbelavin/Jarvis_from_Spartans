@@ -129,12 +129,13 @@ class JarvisOrchestrator:
 
         user_id: Optional[str] = speaker_result.user_id
 
-        # Гостя подсвечиваем отдельным паттерном на индикаторе —
-        # пользователь физически видит, что его не узнали. Обёртка audio
-        # уже поставила "thinking" после записи; guest перекрывает его
-        # на время построения контекста и запроса к LLM.
+        # Гостя подсвечиваем отдельным паттерном — человек видит, что
+        # его не узнали. Иначе оставляем/ставим «думаю»: генерация на
+        # RKLLM занимает ~3 с, и без индикатора пауза выглядит как зависон.
         if user_id is None:
             await self.indicator.set_state("guest")
+        else:
+            await self.indicator.set_state("thinking")
 
         # 3. Память и RAG: профиль, расписание, факты, история — всё
         #    именно этого пользователя. user_id=None (гость) поддержан
@@ -148,6 +149,7 @@ class JarvisOrchestrator:
         # 4. LLM получает готовый список chat-сообщений:
         #    system + история + текущий вопрос. Ничего не склеиваем сами.
         messages = ctx.to_messages()
+        logger.info("Думаю... (запрос к LLM, %d сообщений)", len(messages))
         reply_text = await self.llm.generate(messages)
 
         reply_text = (reply_text or "").strip()
@@ -329,6 +331,14 @@ def build_orchestrator(args: argparse.Namespace) -> JarvisOrchestrator:
     from llm_adapter import LLMAdapter, load_llm_engine
 
     import jarvis_memory as memory
+    from jarvis_memory import db as memory_db
+
+    if not memory_db.is_seeded():
+        logger.warning(
+            "База памяти пуста (%s). Профили anton/masha не подтянутся. "
+            "Наполнить: cd orchestrator/memory_module && python -m jarvis_memory.seed",
+            memory_db.db_path(),
+        )
 
     # --- Модуль Б: аудио -------------------------------------------------
     # Проверяем готовность ДО первого обращения к железу: иначе сырой
@@ -394,6 +404,8 @@ def build_mock_orchestrator(args: argparse.Namespace) -> JarvisOrchestrator:
 
     try:
         import jarvis_memory as memory
+        from jarvis_memory import db as memory_db
+        from jarvis_memory import seed as memory_seed
     except ImportError:
         logger.warning(
             "Пакет jarvis_memory недоступен — использую заглушку памяти "
@@ -403,6 +415,13 @@ def build_mock_orchestrator(args: argparse.Namespace) -> JarvisOrchestrator:
         warn_on_unknown_profile = False
     else:
         warn_on_unknown_profile = True
+        # --mock без сида даёт нейтральный контекст и FOREIGN KEY при
+        # записи истории: профили живут в SQLite, а не в коде.
+        if not memory_db.is_seeded():
+            logger.info(
+                "База памяти пуста — наполняю тестовыми профилями anton/masha."
+            )
+            memory_seed.seed()
 
     indicator = _build_indicator(args)
     audio = IndicatingAudioAdapter(

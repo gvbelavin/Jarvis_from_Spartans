@@ -17,8 +17,8 @@ pyserial>=3.5
 #       пока пусто; на шаге 5 появятся sqlite-vec и onnxruntime,
 #       на шаге 6 — requests
 #
-#   модуль Г (LLM): зависимостей пока нет. Инференс локальный,
-#   облачные API и ключи не используются.
+#   модуль Г (LLM): HTTP-клиент в llm_module.py, urllib из стандартной
+#   библиотеки. Сервер Фёдора — отдельный процесс на порту 8080.
 #
 # Установка:
 #   python -m pip install -r audio_module/requirements.txt
