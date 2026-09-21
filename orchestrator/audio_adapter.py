@@ -93,9 +93,12 @@ def check_ready() -> list[str]:
             found = False
 
         if not found:
+            if package_name in {"torch", "torchaudio"}:
+                hint = "python -m pip install --no-cache-dir -r requirements.txt"
+            else:
+                hint = "python -m pip install -r audio_module/requirements.txt"
             problems.append(
-                f"нет пакета {package_name!r} (нужен для модуля Б): "
-                "python -m pip install -r audio_module/requirements.txt"
+                f"нет пакета {package_name!r} (нужен для модуля Б): {hint}"
             )
 
     # `paths.py` в git модуля Б не хранится (он в .gitignore подмодуля),
