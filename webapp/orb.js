@@ -377,7 +377,7 @@ async function openMic() {
   if (mic) return;
 
   const stream = await navigator.mediaDevices.getUserMedia({
-    audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    audio: { channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: false },
   });
 
   if (!workletReady) {

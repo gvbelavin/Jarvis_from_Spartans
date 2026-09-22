@@ -118,7 +118,7 @@ async function startRecording() {
   setState("busy", "Включаю микрофон…");
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
-      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      audio: { channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: false },
     });
     if (!workletReady) {
       await ctx.audioWorklet.addModule("/static/recorder-worklet.js");
