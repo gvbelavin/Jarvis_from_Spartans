@@ -51,6 +51,8 @@ logger = logging.getLogger("jarvis")
 NO_SPEECH_PHRASE = "Я не расслышал команду. Повторите, пожалуйста."
 ERROR_PHRASE = "Произошла ошибка. Я снова готов слушать."
 NO_ANSWER_PHRASE = "Извините, я не смог подготовить ответ."
+STARTUP_PHRASE = "Доброе утро! Джарвис проснулся."
+SHUTDOWN_PHRASE = "Спокойной ночи! Джарвис спать."
 LLM_NOT_CONNECTED_PHRASE = (
     "Модуль языковой модели ещё не подключён, поэтому ответить я не могу."
 )
@@ -212,6 +214,8 @@ class JarvisOrchestrator:
         logger.info("=" * 64)
         logger.info("Джарвис запущен. Ожидание wake word...")
         logger.info("=" * 64)
+        
+        await self._say_safely(STARTUP_PHRASE)
 
         attempts = 0
 
@@ -258,6 +262,7 @@ class JarvisOrchestrator:
                     await asyncio.sleep(1.5)
                     await self.indicator.set_state("idle")
         finally:
+            await self._say_safely(SHUTDOWN_PHRASE)
             try:
                 await self.indicator.close()
             except Exception:
@@ -527,6 +532,7 @@ async def main(argv: Optional[list[str]] = None) -> None:
         level=getattr(logging, str(args.log_level).upper(), logging.INFO),
         format="%(asctime)s [%(levelname)s] %(message)s",
     )
+    logging.getLogger("numba").setLevel(logging.WARNING)
 
     if args.mock:
         orchestrator = build_mock_orchestrator(args)
