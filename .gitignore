@@ -41,3 +41,6 @@ paths.py
 .idea/
 .DS_Store
 Thumbs.db
+
+# Отладочные записи фраз (python app.py --debug)
+orchestrator/debug_audio/

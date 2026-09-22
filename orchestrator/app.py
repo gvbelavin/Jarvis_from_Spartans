@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from contracts import SpeakerResult
+from debug_audio import maybe_wrap as maybe_debug_audio
 from indicator import IndicatorEsp32, IndicatorNoop
 from indicating_audio import IndicatingAudioAdapter
 from settings import DEFAULT_WEB_PORT, INDICATOR_PORT
@@ -410,7 +411,12 @@ def build_orchestrator(args: argparse.Namespace) -> JarvisOrchestrator:
         record_timeout=args.record_timeout,
         user_id_map=parse_user_map(args.user_map),
     )
-    audio = _maybe_web(audio, args, _submodule("config").SAMPLE_RATE)
+    sample_rate = _submodule("config").SAMPLE_RATE
+    audio = _maybe_web(audio, args, sample_rate)
+    # --debug: каждая фраза сохраняется в WAV (debug_audio.py).
+    audio = maybe_debug_audio(
+        audio, args, source="web" if args.web else "mic", sample_rate=sample_rate
+    )
 
     # --- Модуль Г: локальная LLM -----------------------------------------
     if args.llm_module:
@@ -478,10 +484,13 @@ def build_mock_orchestrator(args: argparse.Namespace) -> JarvisOrchestrator:
         transcript=args.mock_transcript,
         max_commands=args.max_commands,
     )
-    audio = IndicatingAudioAdapter(
+    audio = maybe_debug_audio(
         _maybe_web(engine, args, sample_rate=16000),
-        indicator,
+        args,
+        source="web" if args.web else "mock",
+        sample_rate=16000,
     )
+    audio = IndicatingAudioAdapter(audio, indicator)
 
     return JarvisOrchestrator(
         audio=audio,
@@ -596,6 +605,19 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         help="приватный ключ к --web-cert",
     )
     parser.add_argument(
+        "--debug",
+        action="store_true",
+        help=(
+            "режим отладки: лог DEBUG и сохранение каждой фразы в WAV "
+            "(debug_audio.py); то же включает --log-level DEBUG или JARVIS_DEBUG=1"
+        ),
+    )
+    parser.add_argument(
+        "--debug-audio-dir",
+        default=None,
+        help="куда сохранять записи в режиме отладки (по умолчанию orchestrator/debug_audio/)",
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         help="уровень логирования (по умолчанию INFO)",
@@ -605,6 +627,8 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
 
 async def main(argv: Optional[list[str]] = None) -> None:
     args = parse_args(argv)
+    if args.debug:
+        args.log_level = "DEBUG"
 
     logging.basicConfig(
         level=getattr(logging, str(args.log_level).upper(), logging.INFO),
