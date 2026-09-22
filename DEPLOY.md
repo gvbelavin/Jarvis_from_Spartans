@@ -365,13 +365,13 @@ python app.py --once --log-level DEBUG
 **Почему нужен HTTPS.** Safari на iPhone даёт доступ к микрофону только
 на `https://` (или `localhost`). По `http://100.107.17.63:8443` страница
 откроется, но микрофон не включится, а на голый IP публичный сертификат
-не выдают. Поэтому ниже — сертификат Let's Encrypt на `heyjarvis.ru`,
+не выдают. Поэтому ниже — сертификат Let's Encrypt на `app.heyjarvis.ru`,
 выданный через DNS-проверку: плату из интернета видеть не нужно.
 
 ### 9.1. DNS (один раз)
 
-`heyjarvis.ru` обслуживается Cloudflare: DNS → Records → **Add record**:
-тип `A`, имя `@`, IPv4 `100.107.17.63`, **Proxy status: DNS only (серое
+Зона `heyjarvis.ru` в Cloudflare: DNS → Records → **Add record**:
+тип `A`, имя `app`, IPv4 `100.107.17.63`, **Proxy status: DNS only (серое
 облако)**. С оранжевым облаком Cloudflare пытался бы проксировать трафик
 на адрес, до которого он не достаёт.
 
@@ -381,7 +381,7 @@ python app.py --once --log-level DEBUG
 Проверить:
 
 ```bash
-dig +short heyjarvis.ru @1.1.1.1
+dig +short app.heyjarvis.ru @1.1.1.1
 ```
 
 ### 9.2. Сертификат (на ноутбуке, вручную)
@@ -399,27 +399,27 @@ git clone --depth 1 https://github.com/acmesh-official/acme.sh.git /tmp/acme.sh 
 Запросить проверку:
 
 ```bash
-~/.acme.sh/acme.sh --issue --server letsencrypt --dns -d heyjarvis.ru --yes-I-know-dns-manual-mode-enough-go-ahead-please
+~/.acme.sh/acme.sh --issue --server letsencrypt --dns -d app.heyjarvis.ru --yes-I-know-dns-manual-mode-enough-go-ahead-please
 ```
 
-acme.sh напечатает `Domain: '_acme-challenge.heyjarvis.ru'` и
+acme.sh напечатает `Domain: '_acme-challenge.app.heyjarvis.ru'` и
 `TXT value: '...'`. В Cloudflare добавить запись: тип `TXT`, имя
-`_acme-challenge`, содержимое — это значение. Дождаться, пока она видна:
+`_acme-challenge.app`, содержимое — это значение. Дождаться, пока она видна:
 
 ```bash
-dig +short TXT _acme-challenge.heyjarvis.ru @1.1.1.1
+dig +short TXT _acme-challenge.app.heyjarvis.ru @1.1.1.1
 ```
 
 Завершить выпуск:
 
 ```bash
-~/.acme.sh/acme.sh --renew --server letsencrypt -d heyjarvis.ru --yes-I-know-dns-manual-mode-enough-go-ahead-please
+~/.acme.sh/acme.sh --renew --server letsencrypt -d app.heyjarvis.ru --yes-I-know-dns-manual-mode-enough-go-ahead-please
 ```
 
 Скопировать на плату (TXT-запись после этого можно удалить):
 
 ```bash
-ssh firefly@100.107.17.63 'mkdir -p ~/.jarvis-tls' && scp ~/.acme.sh/heyjarvis.ru_ecc/fullchain.cer firefly@100.107.17.63:~/.jarvis-tls/fullchain.pem && scp ~/.acme.sh/heyjarvis.ru_ecc/heyjarvis.ru.key firefly@100.107.17.63:~/.jarvis-tls/key.pem
+ssh firefly@100.107.17.63 'mkdir -p ~/.jarvis-tls' && scp ~/.acme.sh/app.heyjarvis.ru_ecc/fullchain.cer firefly@100.107.17.63:~/.jarvis-tls/fullchain.pem && scp ~/.acme.sh/app.heyjarvis.ru_ecc/app.heyjarvis.ru.key firefly@100.107.17.63:~/.jarvis-tls/key.pem
 ```
 
 При продлении файлы копируются по тем же путям — перезапускать
@@ -463,26 +463,48 @@ python app.py --web --web-host 100.107.17.63 --web-cert ~/.jarvis-tls/fullchain.
 ### 9.4. Телефон
 
 1. Приложение NetBird на телефоне подключено.
-2. Safari → `https://heyjarvis.ru:8443` → ввести токен → разрешить
+2. Safari → `https://app.heyjarvis.ru:8443` → ввести токен → разрешить
    микрофон.
 3. Чтобы Safari не спрашивал про микрофон каждый раз: кнопка «аА» в
    адресной строке → Настройки веб-сайта → Микрофон → Разрешить.
-4. «Поделиться» → **На экран «Домой»** — открывается как приложение.
+4. На экран «Домой» лучше добавить публичную `heyjarvis.ru` (раздел 9.6):
+   она сама проверит, включён ли NetBird, и перекинет сюда.
 
 Нажали кнопку — говорите — нажали ещё раз. Ответ Джарвиса играет на
 телефоне, в ленте видно, что распознал Whisper и кого узнал Speaker ID.
 
 ### 9.5. Если не работает
 
-- **Страница не открывается, `dig heyjarvis.ru` пустой** — DNS ещё
+- **Страница не открывается, `dig app.heyjarvis.ru` пустой** — DNS ещё
   не обновился (NS-серверы у регистратора) или DNS-сервер сети отбрасывает ответы с
   частными адресами (защита от DNS rebinding). Проверить с другой сети.
 - **Имя резолвится, но таймаут** — политики доступа в NetBird могут
   пропускать между пирами только отдельные порты. Проверить с ноутбука:
-  `curl -v https://heyjarvis.ru:8443/api/status`. Если ssh
+  `curl -v https://app.heyjarvis.ru:8443/api/status`. Если ssh
   работает, а 8443 нет, — просить администратора `netbird.ci.nsu.ru`.
 - **«Джарвис сейчас не слушает» (503)** — микрофон выключен кнопкой BOOT
   на индикаторе или оркестратор завис на прошлой команде.
 - **Проверить без платы**, на ноутбуке: `python app.py --mock --web` →
   `http://localhost:8443` (на `localhost` браузер даёт микрофон и без
   HTTPS; вместо голоса Piper будет гудок).
+
+### 9.6. Публичная страница heyjarvis.ru
+
+`heyjarvis.ru` — открытая страница-прихожая (`landing/index.html`, один
+файл). Она пробует достучаться до `https://app.heyjarvis.ru:8443`: если
+получилось — перекидывает туда, если нет — просит включить NetBird и сама
+проверяет снова, когда вы возвращаетесь из приложения NetBird. Наружу
+при этом ничего не открывается: на странице только HTML и ссылка.
+
+Выложить на Cloudflare Pages (бесплатно, с ноутбука):
+
+1. dash.cloudflare.com → Workers & Pages → **Create** → Pages →
+   **Upload assets** → имя проекта, например `heyjarvis` → загрузить
+   папку `landing/`.
+2. В проекте → **Custom domains** → `heyjarvis.ru`. Cloudflare сам создаст
+   запись для корня домена (проксированную — так и надо).
+
+Обновить страницу — загрузить папку заново (**Create deployment**).
+
+На iPhone на экран «Домой» добавлять именно `heyjarvis.ru`, а не `app.` —
+тогда проверка NetBird срабатывает при каждом открытии.
