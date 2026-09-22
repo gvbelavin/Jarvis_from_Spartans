@@ -159,6 +159,7 @@ class JarvisOrchestrator:
         #    system + история + текущий вопрос. Ничего не склеиваем сами.
         messages = ctx.to_messages()
         logger.info("Думаю... (запрос к LLM, %d сообщений)", len(messages))
+        logger.debug(messages)
         async with astage("llm"):
             reply_text = await self.llm.generate(messages)
 
