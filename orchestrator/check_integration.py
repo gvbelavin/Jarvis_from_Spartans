@@ -162,32 +162,32 @@ async def main() -> int:
     memory.clear()
 
     # --- 1. Разные пользователи, одинаковый вопрос ----------------------
-    anton_ind = RecordingIndicator()
-    masha_ind = RecordingIndicator()
-    anton = make_orchestrator(memory, "anton", "Антон", indicator=anton_ind)
-    masha = make_orchestrator(memory, "masha", "Маша", indicator=masha_ind)
+    daniil_ind = RecordingIndicator()
+    fedor_ind = RecordingIndicator()
+    daniil = make_orchestrator(memory, "daniil", "Даниил", indicator=daniil_ind)
+    fedor = make_orchestrator(memory, "fedor", "Фёдор", indicator=fedor_ind)
 
-    await anton.process_once()
-    await masha.process_once()
+    await daniil.process_once()
+    await fedor.process_once()
 
-    anton_answer = anton.audio.spoken[-1]
-    masha_answer = masha.audio.spoken[-1]
+    daniil_answer = daniil.audio.spoken[-1]
+    fedor_answer = fedor.audio.spoken[-1]
 
-    print(f"       anton -> {anton_answer}")
-    print(f"       masha -> {masha_answer}")
+    print(f"       daniil -> {daniil_answer}")
+    print(f"       fedor -> {fedor_answer}")
 
     check(
-        anton_answer != masha_answer,
+        daniil_answer != fedor_answer,
         "разные пользователи получили разные ответы на один вопрос",
     )
-    check("Антон" in anton_answer, "ответ Антона построен на его профиле")
-    check("Маша" in masha_answer, "ответ Маши построен на её профиле")
+    check("Даниил" in daniil_answer, "ответ Даниила построен на его профиле")
+    check("Фёдор" in fedor_answer, "ответ Фёдора построен на его профиле")
     check(
-        "лекция" in anton_answer and "английский" in masha_answer,
+        "лекция" in daniil_answer and "английский" in fedor_answer,
         "в ответах разные расписания из памяти",
     )
     check(
-        "thinking" in anton_ind.states,
+        "thinking" in daniil_ind.states,
         "перед LLM индикатор в состоянии thinking",
     )
 
@@ -211,7 +211,7 @@ async def main() -> int:
     check("guest" in guest_ind.states, "неузнанный голос подсвечен как guest")
 
     # --- 3. Пустой transcript не доходит до LLM --------------------------
-    silent = make_orchestrator(memory, "anton", "Антон", transcript="   ")
+    silent = make_orchestrator(memory, "daniil", "Даниил", transcript="   ")
     await silent.process_once()
     silent_answer = silent.audio.spoken[-1]
 
@@ -223,11 +223,11 @@ async def main() -> int:
 
     # --- 4. История попадает в следующий запрос --------------------------
     memory.clear()
-    turns = make_orchestrator(memory, "anton", "Антон")
+    turns = make_orchestrator(memory, "daniil", "Даниил")
 
     await turns.process_once()
 
-    ctx = memory.build_context("anton", "а тренировка?")
+    ctx = memory.build_context("daniil", "а тренировка?")
     history = ctx.history
 
     check(
@@ -247,7 +247,7 @@ async def main() -> int:
     )
     check(len(messages) == 4, "system + 2 сообщения истории + вопрос")
     check(
-        "Антон" in messages[0]["content"],
+        "Даниил" in messages[0]["content"],
         "system-промпт из памяти содержит профиль говорящего",
     )
 
@@ -305,16 +305,16 @@ async def main() -> int:
 
         # Уверенный голос проходит как есть.
         known = adapter._to_speaker_result(
-            {"user_id": "anton", "user_name": "anton", "confidence": 0.88}
+            {"user_id": "daniil", "user_name": "daniil", "confidence": 0.88}
         )
         check(
-            known.user_id == "anton" and known.confidence == 0.88,
+            known.user_id == "daniil" and known.confidence == 0.88,
             "узнанный голос -> его user_id и confidence",
         )
 
         # Низкая уверенность ниже порога модуля Б -> гость.
         weak = adapter._to_speaker_result(
-            {"user_id": "anton", "user_name": "anton", "confidence": 0.2}
+            {"user_id": "daniil", "user_name": "daniil", "confidence": 0.2}
         )
         check(
             weak.user_id is None,
@@ -323,12 +323,12 @@ async def main() -> int:
 
         # Переопределение ID через --user-map.
         mapped = audio_adapter.AudioAdapter(
-            user_id_map={"shelestov": "anton"}
+            user_id_map={"shelestov": "daniil"}
         )._to_speaker_result(
             {"user_id": "shelestov", "user_name": None, "confidence": 0.9}
         )
         check(
-            mapped.user_id == "anton",
+            mapped.user_id == "daniil",
             "--user-map связывает ID модуля Б с профилем памяти",
         )
 
@@ -353,7 +353,7 @@ async def main() -> int:
         url = f"http://127.0.0.1:{httpd.server_address[1]}/v1/chat/completions"
         engine = LLMEngine(url=url, timeout=5)
         payload_messages = memory.build_context(
-            "anton", SCHEDULE_QUESTION
+            "daniil", SCHEDULE_QUESTION
         ).to_messages()
         answer = engine.generate(payload_messages)
         body = _FakeRKLLM.last_body or {}
@@ -363,7 +363,7 @@ async def main() -> int:
 
         check(answer == "Короткий ответ модели.", "клиент забирает choices[0].message.content")
         check(roles[:1] == ["system"] and roles[-1:] == ["user"], "на сервер уходят system и user")
-        check("Антон" in system_text, "до LLM доезжает system-промпт с профилем")
+        check("Даниил" in system_text, "до LLM доезжает system-промпт с профилем")
         check(body.get("model") == "rkllm", "в запросе model=rkllm")
         check(body.get("stream") is False, "stream=False: Piper ждёт целую фразу")
     finally:

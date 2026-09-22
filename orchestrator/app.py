@@ -207,7 +207,9 @@ class JarvisOrchestrator:
 
         Модуль Б берёт user_id из имени папки с эталонными записями
         (`audio_dataset/references/<user_id>/`), а модуль памяти знает
-        свои ключи (`anton`, `masha`). Если это разные наборы строк,
+        свои ключи (`daniel`, `daniil`, `fedor`, `stepan`, `gleb`).
+        Сейчас они совпадают, так что ключ нужен редко. Если наборы строк
+        разойдутся,
         персональные данные молча не подтянутся. Лучше сказать об этом вслух.
         """
         if (
@@ -337,7 +339,7 @@ class JarvisOrchestrator:
 
 
 def parse_user_map(raw: Optional[str]) -> dict[str, str]:
-    """Разбирает `--user-map shelestov=anton,puchkov=masha`."""
+    """Разбирает `--user-map daniel_new=daniel,fedya=fedor`."""
     if not raw:
         return {}
 
@@ -404,7 +406,7 @@ def build_orchestrator(args: argparse.Namespace) -> JarvisOrchestrator:
 
     if not memory_db.is_seeded():
         logger.warning(
-            "База памяти пуста (%s). Профили anton/masha не подтянутся. "
+            "База памяти пуста (%s). Профили команды не подтянутся. "
             "Наполнить: cd orchestrator/memory_module && python -m jarvis_memory.seed",
             memory_db.db_path(),
         )
@@ -494,7 +496,7 @@ def build_mock_orchestrator(args: argparse.Namespace) -> JarvisOrchestrator:
         # записи истории: профили живут в SQLite, а не в коде.
         if not memory_db.is_seeded():
             logger.info(
-                "База памяти пуста — наполняю тестовыми профилями anton/masha."
+                "База памяти пуста — наполняю профилями команды (jarvis_memory.seed)."
             )
             memory_seed.seed()
 
@@ -564,7 +566,8 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         default=None,
         help=(
             "соответствие ID говорящего и профиля памяти, например "
-            "shelestov=anton,puchkov=masha"
+            "daniel_new=daniel. Нужно только если имя папки эталонов "
+            "не совпадает с user_id в базе"
         ),
     )
     parser.add_argument(

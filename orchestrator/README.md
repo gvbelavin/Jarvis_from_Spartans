@@ -165,7 +165,8 @@ python app.py
 python app.py --llm-module my_llm --llm-class MyEngine
 
 # связать ID говорящего модуля Б с профилем памяти
-python app.py --user-map shelestov=anton,puchkov=masha
+# (нужно только если имя папки не совпадает с user_id в базе)
+python app.py --user-map daniel_new=daniel
 
 # прочие ключи
 python app.py --device 2 --record-timeout 8 --once --log-level DEBUG
@@ -179,10 +180,14 @@ python app.py --device 2 --record-timeout 8 --once --log-level DEBUG
 ## Важное про ID говорящего
 
 Модуль Б берёт `user_id` из имени папки с эталонными записями
-(`audio_dataset/references/shelestov/`), а модуль памяти знает ключи
-`anton` / `masha`. Если это разные строки, личные данные молча не
-подтянутся. `app.py` предупреждает об этом в логе, а связывает ID
-ключ `--user-map`.
+(`audio_dataset/references/<user_id>/`), а модуль памяти знает ключи
+`daniel`, `daniil`, `fedor`, `stepan`, `gleb`. Сейчас они совпадают: папки `daniel`, `daniil`,
+`fedor`, `stepan` названы теми же строками, что и профили, поэтому
+`--user-map` не нужен. У `gleb` папки с эталонами пока нет — его голос
+определяется как гость, профиль в базе при этом уже есть.
+
+Если строки разойдутся, личные данные молча не подтянутся: `app.py`
+предупреждает об этом в логе, а связывает ID ключ `--user-map`.
 
 ### Модуль 5 — индикатор на ESP32
 

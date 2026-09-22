@@ -205,8 +205,10 @@ scp -r orchestrator/audio_module/audio_dataset firefly@100.107.17.63:~/EDGE/2494
 человека. Они в `.gitignore` модуля Б, поэтому живут только у того, кто их
 записал. **Если папки пустые, ничего не падает — просто все говорящие
 определяются как гость**, и персонализации не будет. Имя папки становится
-`user_id`; если оно не совпадает с ключом в модуле памяти (`anton`, `masha`),
-связать через `--user-map` (раздел 7).
+`user_id`; если оно не совпадает с ключом в модуле памяти
+(`daniel`, `daniil`, `fedor`, `stepan`, `gleb`), связать через `--user-map` (раздел 7).
+Сейчас папки `daniel`, `daniil`, `fedor`, `stepan` названы так же, как
+профили, поэтому ключ не нужен.
 
 Обратно **на плате** — публичные веса качаем напрямую:
 
@@ -279,6 +281,74 @@ cd orchestrator/memory_module && python -m jarvis_memory.seed && cd ../..
 Должно написать `vectors: built` — значит sqlite-vec подхватился и
 семантический поиск включён.
 
+Создаются профили `daniel`, `daniil`, `fedor`, `stepan`, `gleb` — по одному
+на человека, потому что весь смысл модуля памяти в том, что «какое у меня
+расписание» отвечается по-разному в зависимости от того, кто спросил.
+Событий у всех, кроме `daniel`, нарочно выдуманные и нарочно абсурдные: так
+засеянную строку нельзя спутать с настоящей встречей.
+
+**`daniel` событий не получает вообще** (`seed.CALENDAR_ONLY`) — его
+расписание приходит из настоящего календаря, см. ниже. Пока синк не
+настроен, на вопрос о расписании он честно услышит, что на сегодня ничего
+нет.
+
+**`orchestrator/memory_module/calendars.json`** — чьи календари тянуть.
+Файл в `.gitignore`, поэтому на плате его надо создать руками; образец —
+`calendars.example.json`. Ключи — это `user_id` из таблицы `users`: ключ,
+которого там нет, синк пропустит с warning'ом, а не создаст.
+
+```bash
+cat > orchestrator/memory_module/calendars.json <<'JSON'
+{
+  "daniel": [
+    {
+      "type": "caldav",
+      "name": "icloud",
+      "url": "https://caldav.icloud.com/",
+      "username": "ВАША_ПОЧТА@icloud.com",
+      "password_env": "DANIEL_ICLOUD_APP_PASSWORD",
+      "calendars": ["Учёба", "Личное"]
+    }
+  ]
+}
+JSON
+```
+
+Пароль — **app-specific** с appleid.apple.com, обычный пароль аккаунта с
+включённой двухфакторкой не подойдёт. Он идёт в `.env`, не в этот файл:
+
+```bash
+echo 'DANIEL_ICLOUD_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx' >> orchestrator/memory_module/.env
+```
+
+Для Google — вместо CalDAV «секретный адрес в формате iCal» (настройки
+календаря → «Интеграция календаря»), тип `ics`. Этот URL сам по себе даёт
+доступ на чтение всего календаря, так что обращаться с ним как с паролем.
+
+Зависимости синка (на плате, если ещё не стоят):
+
+```bash
+pip install icalendar recurring_ical_events caldav
+```
+
+Первый прогон — руками, чтобы увидеть ошибки:
+
+```bash
+cd orchestrator/memory_module && python tools/sync_calendars.py && cd ../..
+```
+
+Должно написать `ok daniel/caldav:icloud: N events`. Дальше — по таймеру,
+запрос к календарю никогда не делается в момент вопроса:
+
+```bash
+crontab -e
+*/15 * * * * cd /home/firefly/EDGE/24943/spartains/jarvis/orchestrator/memory_module && python3 tools/sync_calendars.py >> sync.log 2>&1
+```
+
+**Порядок важен: сначала seed, потом sync.** `seed` делает
+`DELETE FROM users`, каскад сносит и засинканные события тоже — они
+вернутся только следующим прогоном `sync_calendars.py`, сами по себе нет.
+
 ---
 
 ## 7. Плата: проверка по нарастающей
@@ -327,8 +397,9 @@ WeSpeaker из интернета** (нужен выход в сеть с пла
 python app.py --once --log-level DEBUG
 ```
 
-Полный прогон на железе. Связать ID говорящего с профилями памяти:
-`--user-map shelestov=anton,puchkov=masha`. Без платы индикатора —
+Полный прогон на железе. Связать ID говорящего с профилями памяти, если
+имена папок эталонов разошлись с `user_id` в базе:
+`--user-map <имя_папки>=<user_id>`. Без платы индикатора —
 добавить `--no-indicator`.
 
 ---

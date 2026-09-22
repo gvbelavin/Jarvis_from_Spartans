@@ -41,7 +41,7 @@ class AudioEngineMock:
     ) -> None:
         self.transcript = transcript
         self.speaker = speaker or SpeakerResult(
-            user_id="anton", user_name="Антон", confidence=0.91
+            user_id="daniil", user_name="Даниил", confidence=0.91
         )
         self.max_commands = max_commands
         self.spoken: list[str] = []
@@ -195,12 +195,12 @@ class MemoryModuleMock:
 
     def __init__(self) -> None:
         self.profiles = {
-            "anton": {
-                "name": "Антон",
+            "daniil": {
+                "name": "Даниил",
                 "schedule": "В 16:00 лекция по матанализу, в 19:30 тренировка.",
             },
-            "masha": {
-                "name": "Маша",
+            "fedor": {
+                "name": "Фёдор",
                 "schedule": "В 09:00 английский, в 14:00 встреча с научруком.",
             },
         }
@@ -272,10 +272,10 @@ class LLMEngineMock:
         )
 
         if "расписан" in query.lower():
-            if "Антон" in messages[0]["content"]:
-                return "Антон, в четыре часа дня лекция по матанализу, а в половине восьмого тренировка."
-            if "Маша" in messages[0]["content"]:
-                return "Маша, в девять утра английский, а в два часа встреча с научруком."
+            if "Даниил" in messages[0]["content"]:
+                return "Даниил, в четыре часа дня лекция по матанализу, а в половине восьмого тренировка."
+            if "Фёдор" in messages[0]["content"]:
+                return "Фёдор, в девять утра английский, а в два часа встреча с научруком."
             return "Я не знаю, кто спрашивает, поэтому расписание показать не могу."
 
         if "повтор" in query.lower():
