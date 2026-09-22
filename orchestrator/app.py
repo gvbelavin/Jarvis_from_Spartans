@@ -51,6 +51,15 @@ MEMORY_MODULE_DIR = BASE_DIR / "memory_module"
 if MEMORY_MODULE_DIR.exists() and str(MEMORY_MODULE_DIR) not in sys.path:
     sys.path.insert(0, str(MEMORY_MODULE_DIR))
 
+# Числа словами. Модуль Ц уже убирает цифры из промпта, но модель может
+# написать их и сама; это последний рубеж перед динамиком. Импорт отдельно
+# от self.memory: там может стоять мок, а функция нужна всегда.
+try:
+    from jarvis_memory import spell as spell_numbers
+except ImportError:                                # модуль Ц не подключён
+    def spell_numbers(text: str) -> str:
+        return text
+
 logger = logging.getLogger("jarvis")
 
 # Фразы самого ассистента (не модели): произносятся, когда до LLM дело не дошло.
@@ -168,6 +177,11 @@ class JarvisOrchestrator:
         if not reply_text:
             logger.warning("LLM вернула пустой ответ.")
             reply_text = NO_ANSWER_PHRASE
+
+        # «14:30» синтезатор прочитает как набор символов, а не как время.
+        # Делается до записи в историю, чтобы «повтори» вернуло ровно то,
+        # что было произнесено.
+        reply_text = spell_numbers(reply_text)
 
         # 5. История: сохраняем пару «вопрос — ответ» для этого пользователя.
         #    Без этого вызова не работают ни «повтори», ни многоходовой диалог.
