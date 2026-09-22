@@ -64,6 +64,9 @@ const CAPTIONS = {
 };
 
 function setState(next, text) {
+  if (next !== state && (next === "listening" || next === "speaking" || next === "thinking")) {
+    ripple(next === "listening" ? 1 : 0.7);
+  }
   state = next;
   caption.textContent = text !== undefined ? text : CAPTIONS[next] || "";
   $("sheetStatus").textContent = {
@@ -90,6 +93,40 @@ const PALETTE = {
   offline:    ["#ef4444", "#7f1d1d", "#2a1212"],
 };
 
+// Цвета живут в RGB и перетекают друг в друга: переключение палитры
+// «в лоб» выглядит как моргание лампочки.
+const toRgb = (hex) => [
+  parseInt(hex.slice(1, 3), 16),
+  parseInt(hex.slice(3, 5), 16),
+  parseInt(hex.slice(5, 7), 16),
+];
+const PALETTE_RGB = {};
+for (const [name, colors] of Object.entries(PALETTE)) PALETTE_RGB[name] = colors.map(toRgb);
+
+let tint = PALETTE_RGB.asleep.map((c) => c.slice());
+const css = (c, a) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
+
+// Каждая доля живёт на своей орбите со своей скоростью — иначе три
+// одинаковых пятна вращаются как единое колесо.
+const LOBES = [
+  { orbit: 1.00, speed:  0.55, wob: 1.00, phase: 0.0 },
+  { orbit: 1.35, speed: -0.42, wob: 1.35, phase: 2.1 },
+  { orbit: 0.75, speed:  0.78, wob: 0.85, phase: 4.2 },
+];
+
+// Волны расходятся от шара: на wake word, на начало ответа и на всплеск
+// голоса. Без них смена состояния незаметна боковым зрением.
+const ripples = [];
+let lastRipple = 0;
+function ripple(strength) {
+  // Пауза между волнами: на каждом слоге голоса получался частокол колец.
+  const now = performance.now();
+  if (now - lastRipple < 420) return;
+  lastRipple = now;
+  ripples.push({ born: now, strength });
+  if (ripples.length > 4) ripples.shift();
+}
+
 function fitCanvas() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const size = Math.min(window.innerWidth, window.innerHeight) * 0.78;
@@ -107,9 +144,10 @@ function blob(cx, cy, r, amp, t, phase, color, alpha) {
   for (let i = 0; i <= steps; i++) {
     const a = (i / steps) * Math.PI * 2;
     const wob =
-      Math.sin(a * 3 + t * 1.1 + phase) * 0.5 +
-      Math.sin(a * 5 - t * 0.8 + phase * 1.7) * 0.3 +
-      Math.sin(a * 2 + t * 1.6 + phase * 0.5) * 0.2;
+      Math.sin(a * 3 + t * 1.9 + phase) * 0.45 +
+      Math.sin(a * 5 - t * 1.4 + phase * 1.7) * 0.3 +
+      Math.sin(a * 2 + t * 2.6 + phase * 0.5) * 0.2 +
+      Math.sin(a * 7 + t * 0.9 - phase) * 0.12;
     const rr = r * (1 + amp * wob);
     const x = cx + Math.cos(a) * rr;
     const y = cy + Math.sin(a) * rr;
@@ -119,16 +157,16 @@ function blob(cx, cy, r, amp, t, phase, color, alpha) {
   // Плотная середина и мягкий край: иначе виден не шар, а размытое
   // пятно, и колебание контура не читается вовсе.
   const grad = g.createRadialGradient(cx, cy, r * 0.05, cx, cy, r);
-  grad.addColorStop(0, color);
-  grad.addColorStop(0.55, color);
-  grad.addColorStop(1, "rgba(0,0,0,0)");
-  g.globalAlpha = alpha;
+  grad.addColorStop(0, css(color, alpha));
+  grad.addColorStop(0.55, css(color, alpha * 0.85));
+  grad.addColorStop(1, css(color, 0));
   g.fillStyle = grad;
   g.fill();
-  g.globalAlpha = 1;
 }
 
-let shown = 0; // сглаженный уровень: без него шар дёргается
+let shown = 0;     // сглаженный уровень: без него шар дёргается
+let prevLevel = 0; // для ловли всплесков голоса
+
 function draw(now) {
   requestAnimationFrame(draw);
 
@@ -139,20 +177,34 @@ function draw(now) {
   const cy = h / 2;
 
   let target = level;
-  if (state === "speaking") target = speakingLevel(t);
-  else if (state === "thinking") target = 0.35 + 0.15 * Math.sin(t * 3.2);
-  else if (state === "idle") target = 0.12 + 0.05 * Math.sin(t * 1.1);
-  else if (state === "asleep" || state === "offline") target = 0.06;
-  else if (state === "connecting") target = 0.2 + 0.1 * Math.sin(t * 2.4);
+  if (state === "speaking") target = speakingLevel();
+  else if (state === "thinking") target = 0.4 + 0.22 * Math.sin(t * 4.1) + 0.1 * Math.sin(t * 7.3);
+  else if (state === "idle") target = 0.14 + 0.07 * Math.sin(t * 1.3) + 0.03 * Math.sin(t * 2.9);
+  else if (state === "asleep") target = 0.06 + 0.03 * Math.sin(t * 0.8);
+  else if (state === "offline") target = 0.06;
+  else if (state === "connecting") target = 0.22 + 0.12 * Math.sin(t * 3.4);
+
+  // Резкий всплеск голоса или ответа — волна по шару.
+  if ((state === "listening" || state === "speaking") && target - prevLevel > 0.3) {
+    ripple(Math.min(1, target));
+  }
+  prevLevel = target;
 
   // Вверх быстро (голос), вниз плавно — так шар «дышит», а не мигает.
-  shown += (target - shown) * (target > shown ? 0.35 : 0.06);
+  shown += (target - shown) * (target > shown ? 0.45 : 0.07);
+
+  // Цвет догоняет состояние за ~полсекунды.
+  const want = PALETTE_RGB[state] || PALETTE_RGB.idle;
+  for (let i = 0; i < 3; i++) {
+    for (let k = 0; k < 3; k++) tint[i][k] += (want[i][k] - tint[i][k]) * 0.08;
+  }
 
   g.clearRect(0, 0, w, h);
 
-  const [c1, c2, c3] = PALETTE[state] || PALETTE.idle;
-  const base = Math.min(w, h) * 0.30 * (1 + shown * 0.35);
-  const amp = 0.06 + shown * 0.16;
+  const [c1, c2, c3] = tint;
+  const pulse = 1 + 0.04 * Math.sin(t * (state === "thinking" ? 5.2 : 1.7));
+  const base = Math.min(w, h) * 0.30 * (1 + shown * 0.35) * pulse;
+  const amp = 0.055 + shown * 0.13;
 
   g.globalCompositeOperation = "lighter";
 
@@ -160,45 +212,74 @@ function draw(now) {
   // холста, иначе на границе виден светлый квадрат вместо свечения.
   const haloR = Math.min(base * 1.9, Math.min(w, h) / 2);
   const halo = g.createRadialGradient(cx, cy, base * 0.5, cx, cy, haloR);
-  halo.addColorStop(0, c3);
-  halo.addColorStop(1, "rgba(0,0,0,0)");
-  g.globalAlpha = 0.45 + shown * 0.25;
+  halo.addColorStop(0, css(c3, 0.45 + shown * 0.3));
+  halo.addColorStop(1, css(c3, 0));
   g.fillStyle = halo;
   g.beginPath();
   g.arc(cx, cy, haloR, 0, Math.PI * 2);
   g.fill();
-  g.globalAlpha = 1;
 
-  // Три доли на медленно вращающемся треугольнике: их пересечения
-  // смешивают цвета, и шар «переливается», а не просто пульсирует.
-  const spin = t * (state === "thinking" ? 0.9 : 0.25);
-  const off = base * (0.18 + shown * 0.12);
-  const lobes = [c1, c2, c3];
+  // Три доли, у каждой своя орбита: их пересечения смешивают цвета, и
+  // шар «переливается», а не просто пульсирует.
+  const rush = state === "thinking" ? 2.4 : state === "speaking" ? 1.5 : 1;
+  const off = base * (0.16 + shown * 0.16);
   for (let i = 0; i < 3; i++) {
-    const a = spin + (i * Math.PI * 2) / 3;
+    const L = LOBES[i];
+    const a = t * L.speed * rush + L.phase;
+    const wobbleOrbit = 1 + 0.25 * Math.sin(t * (1.3 + i * 0.4) + L.phase);
     blob(
-      cx + Math.cos(a) * off,
-      cy + Math.sin(a) * off,
-      base * 0.82,
-      amp,
-      t * (1 + i * 0.15),
-      i * 2.1,
-      lobes[i],
+      cx + Math.cos(a) * off * L.orbit * wobbleOrbit,
+      cy + Math.sin(a * 1.13) * off * L.orbit * wobbleOrbit,
+      base * 0.92,
+      amp * L.wob,
+      t * (1 + i * 0.22) * rush,
+      L.phase,
+      tint[i],
       0.6
+    );
+  }
+
+  // Быстрый блик по краю: он и делает шар «живым» на глаз.
+  if (state !== "asleep" && state !== "offline") {
+    const sa = t * (1.6 * rush);
+    const sr = base * (0.55 + 0.12 * Math.sin(t * 3.1));
+    blob(
+      cx + Math.cos(sa) * sr,
+      cy + Math.sin(sa) * sr,
+      base * (0.2 + shown * 0.16),
+      amp * 1.4,
+      t * 2.2,
+      1.1,
+      [255, 255, 255],
+      0.12 + shown * 0.2
     );
   }
 
   // Ядро: плотный блик, иначе центр выглядит пустым.
   const core = g.createRadialGradient(cx, cy, 0, cx, cy, base * 0.6);
-  core.addColorStop(0, "rgba(255,255,255," + (0.2 + shown * 0.5).toFixed(3) + ")");
+  core.addColorStop(0, `rgba(255,255,255,${(0.2 + shown * 0.5).toFixed(3)})`);
   core.addColorStop(1, "rgba(255,255,255,0)");
   g.fillStyle = core;
   g.beginPath();
   g.arc(cx, cy, base * 0.6, 0, Math.PI * 2);
   g.fill();
+
+  // Расходящиеся волны.
+  for (let i = ripples.length - 1; i >= 0; i--) {
+    const age = (now - ripples[i].born) / 1300;
+    if (age >= 1) { ripples.splice(i, 1); continue; }
+    const r = base * 0.7 + age * (Math.min(w, h) / 2 - base * 0.7);
+    g.strokeStyle = css(c1, (1 - age) * 0.35 * ripples[i].strength);
+    g.lineWidth = Math.max(1, base * 0.05 * (1 - age));
+    g.beginPath();
+    g.arc(cx, cy, r, 0, Math.PI * 2);
+    g.stroke();
+  }
+
   g.globalCompositeOperation = "source-over";
 }
 requestAnimationFrame(draw);
+
 
 // Пока играет ответ, шар движется по реальной громкости этого ответа.
 function speakingLevel() {
