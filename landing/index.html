@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex">
+  <meta name="theme-color" content="#0e1116">
+  <title>Hey Jarvis</title>
+  <!--
+    Public landing page for heyjarvis.ru (Cloudflare Pages).
+    Jarvis itself runs on the Firefly board and is reachable only over
+    NetBird at APP_URL. This page checks whether it can reach Jarvis:
+    if it can, it redirects there; if not, it asks you to turn on NetBird.
+    It stores nothing and makes no request except that check.
+  -->
+  <script defer src="https://stat.gehrman.me/script.js" data-website-id="114b441d-284c-470d-b1cc-5b5ba2d28bdd"></script>
+  <script defer src="https://stat.gehrman.me/recorder.js" data-website-id="114b441d-284c-470d-b1cc-5b5ba2d28bdd" data-sample-rate="1" data-mask-level="moderate" data-max-duration="300000"></script>
+  <style>
+    :root {
+      --bg: #f4f5f7;
+      --surface: #ffffff;
+      --text: #14171c;
+      --muted: #6a7280;
+      --accent: #2f6fed;
+      --warn: #d97706;
+      --border: #e2e5ea;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0e1116;
+        --surface: #181c23;
+        --text: #e8eaee;
+        --muted: #8b93a1;
+        --accent: #5b8cff;
+        --warn: #f5a524;
+        --border: #262b34;
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: env(safe-area-inset-top) 16px env(safe-area-inset-bottom);
+    }
+    main {
+      width: 100%;
+      max-width: 380px;
+      text-align: center;
+    }
+    .orb {
+      width: 88px; height: 88px;
+      margin: 0 auto 24px;
+      border-radius: 50%;
+      background: var(--accent);
+      display: flex; align-items: center; justify-content: center;
+      color: #fff;
+      transition: background .3s;
+    }
+    .orb svg { width: 36px; height: 36px; }
+    body[data-state="checking"] .orb { animation: pulse 1.4s ease-in-out infinite; }
+    body[data-state="offline"] .orb { background: var(--warn); }
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(.92); opacity: .7; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      body[data-state="checking"] .orb { animation: none; }
+    }
+    h1 { font-size: 24px; margin: 0 0 8px; font-weight: 650; }
+    p { margin: 0 0 8px; color: var(--muted); }
+    .steps {
+      text-align: left;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px 16px 14px 36px;
+      margin: 20px 0;
+      color: var(--text);
+    }
+    .steps li + li { margin-top: 6px; }
+    button {
+      font: inherit;
+      font-weight: 600;
+      width: 100%;
+      padding: 14px;
+      border: none;
+      border-radius: 12px;
+      background: var(--accent);
+      color: #fff;
+      cursor: pointer;
+    }
+    button:disabled { opacity: .5; cursor: default; }
+    .small { font-size: 13px; margin-top: 16px; }
+    .small a { color: var(--muted); }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body data-state="checking">
+  <main>
+    <div class="orb" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><path d="M12 17v5"/>
+      </svg>
+    </div>
+
+    <section id="checking">
+      <h1>Looking for Jarvis…</h1>
+      <p>One sec.</p>
+    </section>
+
+    <section id="offline" hidden>
+      <h1>Ope! Turn on NetBird, buddy.</h1>
+      <p>Jarvis lives on a private network and can't hear you until you're on it.</p>
+      <ol class="steps">
+        <li>Open the <strong>NetBird</strong> app.</li>
+        <li>Tap <strong>Connect</strong>.</li>
+        <li>Come back here. This page will find Jarvis by itself.</li>
+      </ol>
+      <button id="retry" type="button">Try again</button>
+      <p class="small">NetBird is on and you still see this? Jarvis is probably asleep.<br>
+        <a id="direct" href="#">Open Jarvis directly</a></p>
+    </section>
+  </main>
+
+  <script>
+    "use strict";
+
+    const APP_URL = "https://app.heyjarvis.ru:8443/";
+    const TIMEOUT_MS = 4000;       // the first packet over NetBird can be slow
+    const RETRY_EVERY_MS = 5000;   // keep checking quietly while the page is open
+
+    const $ = (id) => document.getElementById(id);
+    $("direct").href = APP_URL;
+
+    let inFlight = false;
+
+    function show(state) {
+      document.body.dataset.state = state;
+      $("checking").hidden = state !== "checking";
+      $("offline").hidden = state !== "offline";
+    }
+
+    // no-cors: we don't need to read the response, only to know whether
+    // the connection went through. Jarvis needs no CORS settings for this.
+    async function reachable() {
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
+      try {
+        await fetch(APP_URL + "api/status", { mode: "no-cors", cache: "no-store", signal: ctl.signal });
+        return true;
+      } catch {
+        return false;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    async function check(visible) {
+      if (inFlight) return;
+      inFlight = true;
+      if (visible) show("checking");
+      $("retry").disabled = true;
+      const ok = await reachable();
+      inFlight = false;
+      $("retry").disabled = false;
+      if (ok) location.replace(APP_URL);
+      else show("offline");
+    }
+
+    $("retry").addEventListener("click", () => check(true));
+
+    // Back from the NetBird app: check right away.
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) check(false);
+    });
+    window.addEventListener("pageshow", (e) => { if (e.persisted) check(true); });
+
+    setInterval(() => {
+      if (!document.hidden && document.body.dataset.state === "offline") check(false);
+    }, RETRY_EVERY_MS);
+
+    check(true);
+  </script>
+</body>
+</html>
