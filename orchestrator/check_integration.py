@@ -291,6 +291,12 @@ async def main() -> int:
             "пакет jarvis_memory на месте",
         )
 
+        required = {package for _, package in audio_adapter._REQUIRED_MODULES}
+        check(
+            "torch" in required and "torchaudio" in required,
+            "check_ready требует torch и torchaudio (WeSpeaker падает без пары)",
+        )
+
         adapter = audio_adapter.AudioAdapter()
 
         # Неузнанный голос: модуль Б отдаёт user_name=None.

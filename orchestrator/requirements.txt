@@ -1,13 +1,19 @@
 # requirements.txt — зависимости оркестратора (Задача А)
 
 # Модуль 5 (Степан): индикатор на ESP32 общается по USB-serial.
-# Одна единственная реальная зависимость самого оркестратора.
 pyserial>=3.5
+
+# WeSpeaker (модуль Б) на старте импортирует torchaudio. Без пакета
+# `python app.py` падает сырым ModuleNotFoundError уже после check_ready,
+# если в списке был только torch. Ставить парой — pip подберёт совместимые
+# версии. На плате (мало места): pip install --no-cache-dir -r requirements.txt
+torch
+torchaudio
 
 # Всё остальное — стандартная библиотека Python:
 #   asyncio, logging, dataclasses, argparse, pathlib, typing
 #
-# Реальные зависимости приходят с подмодулями:
+# Остальные зависимости приходят с подмодулями:
 #
 #   orchestrator/audio_module/requirements.txt     (модуль Б)
 #       numpy sounddevice soundfile openwakeword
@@ -21,5 +27,6 @@ pyserial>=3.5
 #   библиотеки. Сервер Фёдора — отдельный процесс на порту 8080.
 #
 # Установка:
+#   python -m pip install --no-cache-dir -r requirements.txt
 #   python -m pip install -r audio_module/requirements.txt
 #   python -m pip install -r memory_module/requirements.txt
