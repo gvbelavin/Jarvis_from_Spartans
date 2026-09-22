@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="ru">
+
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -9,10 +10,22 @@
   <meta name="apple-mobile-web-app-title" content="Джарвис">
   <meta name="theme-color" content="#05070c">
   <link rel="manifest" href="/static/manifest.webmanifest">
+  <script defer src="https://stat.gehrman.me/script.js" data-website-id="ff0d61e6-13d3-4bb0-ab08-f39abeee0265"></script>
+  <script defer src="https://stat.gehrman.me/recorder.js" data-website-id="ff0d61e6-13d3-4bb0-ab08-f39abeee0265"
+    data-sample-rate="1" data-mask-level="moderate" data-max-duration="300000"></script>
   <title>Джарвис</title>
   <style>
-    * { box-sizing: border-box; }
-    html, body { height: 100%; margin: 0; overflow: hidden; }
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+    }
+
     body {
       background: #05070c;
       color: #e8eaee;
@@ -33,7 +46,10 @@
       justify-content: center;
       gap: 28px;
     }
-    canvas { display: block; }
+
+    canvas {
+      display: block;
+    }
 
     #caption {
       min-height: 20px;
@@ -50,18 +66,29 @@
       position: fixed;
       top: calc(env(safe-area-inset-top) + 12px);
       right: 12px;
-      width: 44px; height: 44px;
-      display: flex; align-items: center; justify-content: center;
+      width: 44px;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       border: none;
       border-radius: 50%;
-      background: rgba(255,255,255,.07);
+      background: rgba(255, 255, 255, .07);
       color: #8b93a1;
       opacity: 0;
       pointer-events: none;
       transition: opacity .3s;
     }
-    #menuBtn.show { opacity: 1; pointer-events: auto; }
-    #menuBtn svg { width: 20px; height: 20px; }
+
+    #menuBtn.show {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    #menuBtn svg {
+      width: 20px;
+      height: 20px;
+    }
 
     #sheet {
       position: fixed;
@@ -73,10 +100,26 @@
       transform: translateY(101%);
       transition: transform .25s ease;
     }
-    #sheet.show { transform: none; }
-    #sheet h2 { margin: 0 0 14px; font-size: 16px; font-weight: 600; }
-    #sheet .row { display: flex; gap: 8px; margin-bottom: 10px; }
-    #sheet a, #sheet button, #sheet input {
+
+    #sheet.show {
+      transform: none;
+    }
+
+    #sheet h2 {
+      margin: 0 0 14px;
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    #sheet .row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    #sheet a,
+    #sheet button,
+    #sheet input {
       font: inherit;
       padding: 12px 14px;
       border-radius: 11px;
@@ -87,11 +130,26 @@
       text-align: center;
       flex: 1;
     }
-    #sheet .primary { background: #2f6fed; border-color: transparent; color: #fff; font-weight: 600; }
-    #sheet .hint { color: #6a7280; font-size: 13px; margin: 2px 0 0; }
-    [hidden] { display: none !important; }
+
+    #sheet .primary {
+      background: #2f6fed;
+      border-color: transparent;
+      color: #fff;
+      font-weight: 600;
+    }
+
+    #sheet .hint {
+      color: #6a7280;
+      font-size: 13px;
+      margin: 2px 0 0;
+    }
+
+    [hidden] {
+      display: none !important;
+    }
   </style>
 </head>
+
 <body>
   <div id="stage">
     <canvas id="orb" width="640" height="640" aria-hidden="true"></canvas>
@@ -100,9 +158,9 @@
 
   <button id="menuBtn" type="button" aria-label="Меню">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-      <circle cx="12" cy="5" r="1.4" fill="currentColor" stroke="none"/>
-      <circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/>
-      <circle cx="12" cy="19" r="1.4" fill="currentColor" stroke="none"/>
+      <circle cx="12" cy="5" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="19" r="1.4" fill="currentColor" stroke="none" />
     </svg>
   </button>
 
@@ -125,4 +183,5 @@
   <audio id="player" playsinline preload="none"></audio>
   <script src="/static/orb.js"></script>
 </body>
+
 </html>
