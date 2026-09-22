@@ -73,6 +73,10 @@ class AudioEngineMock:
         logger.info("[mock audio] Динамик (Piper TTS): %s", text)
         await asyncio.sleep(0.05)
 
+    def stream_tools(self):
+        """Потоковый режим без моделей: wake word по громкому звуку."""
+        return _MockWakeWord(), _MockRecorder, 1280
+
     async def synthesize(self, text: str) -> bytes:
         """Вместо голоса Piper — короткий гудок, чтобы веб-режим было слышно."""
         return _beep_wav()
@@ -90,6 +94,48 @@ class AudioEngineMock:
 
     def close(self) -> None:
         logger.info("[mock audio] Микрофон закрыт.")
+
+
+class _MockWakeWord:
+    """Срабатывает на любой достаточно громкий чанк — вместо openWakeWord."""
+
+    THRESHOLD = 800
+
+    def __call__(self, frame) -> bool:
+        import numpy as np
+
+        return bool(np.abs(frame).mean() > self.THRESHOLD)
+
+
+class _MockRecorder:
+    """Мини-VAD вместо CommandRecorder модуля Б: тишина = конец фразы."""
+
+    SILENCE_THRESHOLD = 500
+    SILENCE_CHUNKS = 13
+
+    def __init__(self) -> None:
+        self.audio_chunks: list[Any] = []
+        self.finished = False
+        self._started = False
+        self._silence = 0
+
+    def process(self, frame) -> None:
+        import numpy as np
+
+        self.audio_chunks.append(frame.copy())
+
+        if np.abs(frame).mean() > self.SILENCE_THRESHOLD:
+            self._started = True
+            self._silence = 0
+        elif self._started:
+            self._silence += 1
+            if self._silence >= self.SILENCE_CHUNKS:
+                self.finished = True
+
+    def get_audio(self):
+        import numpy as np
+
+        return np.concatenate(self.audio_chunks)
 
 
 def _beep_wav(seconds: float = 0.3, freq: float = 660.0) -> bytes:

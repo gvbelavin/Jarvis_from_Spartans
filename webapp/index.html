@@ -54,6 +54,7 @@
       padding: 12px 0;
     }
     h1 { font-size: 20px; margin: 0; font-weight: 600; }
+    h1 a { color: inherit; text-decoration: none; }
     #conn { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
     #conn::before {
       content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--muted);
@@ -136,7 +137,7 @@
 </head>
 <body>
   <header>
-    <h1>Джарвис</h1>
+    <h1><a href="/" id="toOrb" title="К шару">Джарвис</a></h1>
     <span id="conn">…</span>
   </header>
 

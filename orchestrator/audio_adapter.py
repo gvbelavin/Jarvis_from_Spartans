@@ -203,6 +203,19 @@ class AudioAdapter:
     async def play_tts(self, text: str) -> None:
         await asyncio.to_thread(self._play_tts_blocking, text)
 
+    def stream_tools(self):
+        """
+        (detect, CommandRecorder, CHUNK_SIZE) для потокового режима web_audio.
+
+        Блокирующая функция: первый вызов поднимает ONNX-сессию
+        openWakeWord. Вызывается из отдельного потока.
+        """
+        return (
+            _submodule("wake_word").detect,
+            _submodule("comand_record").CommandRecorder,
+            int(_submodule("config").CHUNK_SIZE),
+        )
+
     async def synthesize(self, text: str) -> bytes:
         """WAV от Piper без проигрывания — для веб-интерфейса (web_audio.py)."""
         return await asyncio.to_thread(_submodule("tts").synthesize, text)
