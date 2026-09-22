@@ -203,6 +203,10 @@ class AudioAdapter:
     async def play_tts(self, text: str) -> None:
         await asyncio.to_thread(self._play_tts_blocking, text)
 
+    async def synthesize(self, text: str) -> bytes:
+        """WAV от Piper без проигрывания — для веб-интерфейса (web_audio.py)."""
+        return await asyncio.to_thread(_submodule("tts").synthesize, text)
+
     async def listen_once(self) -> tuple[SpeakerResult, str]:
         await self.wait_for_wake_word()
 

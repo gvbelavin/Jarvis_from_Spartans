@@ -73,6 +73,10 @@ class AudioEngineMock:
         logger.info("[mock audio] Динамик (Piper TTS): %s", text)
         await asyncio.sleep(0.05)
 
+    async def synthesize(self, text: str) -> bytes:
+        """Вместо голоса Piper — короткий гудок, чтобы веб-режим было слышно."""
+        return _beep_wav()
+
     async def listen_once(self) -> tuple[SpeakerResult, str]:
         """Тот же контракт, что у audio_adapter.AudioAdapter.listen_once()."""
         await self.wait_for_wake_word()
@@ -86,6 +90,26 @@ class AudioEngineMock:
 
     def close(self) -> None:
         logger.info("[mock audio] Микрофон закрыт.")
+
+
+def _beep_wav(seconds: float = 0.3, freq: float = 660.0) -> bytes:
+    import io
+    import math
+    import struct
+    import wave
+
+    rate = 22050
+    frames = b"".join(
+        struct.pack("<h", int(8000 * math.sin(2 * math.pi * freq * i / rate)))
+        for i in range(int(seconds * rate))
+    )
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(rate)
+        wav.writeframes(frames)
+    return buf.getvalue()
 
 
 class _FakeAudio:

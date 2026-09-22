@@ -116,6 +116,22 @@ class IndicatingAudioAdapter:
             except Exception:
                 logger.debug("Indicator idle after TTS failed.", exc_info=True)
 
+    # --- необязательные хуки (есть у WebAudioAdapter) -------------------
+
+    async def open(self) -> None:
+        await self._call_optional("open")
+
+    async def end_turn(self) -> None:
+        await self._call_optional("end_turn")
+
+    async def aclose(self) -> None:
+        await self._call_optional("aclose")
+
+    async def _call_optional(self, name: str) -> None:
+        method = getattr(self._inner, name, None)
+        if callable(method):
+            await method()
+
     def close(self) -> None:
         close = getattr(self._inner, "close", None)
         if callable(close):

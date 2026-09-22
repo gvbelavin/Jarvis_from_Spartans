@@ -123,7 +123,7 @@ conda install -y -c conda-forge compilers
 ## 4. Плата: Python-зависимости
 
 ```bash
-pip install numpy onnxruntime sounddevice soundfile pywhispercpp piper-tts sqlite-vec tokenizers pyserial
+pip install numpy onnxruntime sounddevice soundfile pywhispercpp piper-tts sqlite-vec tokenizers pyserial aiohttp
 ```
 
 Все пакеты ставятся готовыми aarch64-колёсами, ничего не компилируется.
@@ -349,3 +349,140 @@ python app.py --once --log-level DEBUG
 - Освобождается: `pip uninstall torch torchaudio wespeaker s3prl openai-whisper peft accelerate`.
 
 Решение и реализация — за Даниилшем, это его модуль.
+
+---
+
+## 9. Говорить с телефона (веб-интерфейс через NetBird)
+
+Режим `--web`: микрофон и динамик платы заменяются браузером телефона.
+Модели те же (Speaker ID, Whisper, Piper грузятся один раз), веб-сервер
+живёт внутри `app.py`. Код — `orchestrator/web_audio.py`, страница — `webapp/`.
+
+**Сеть не трогаем вообще.** Ни nginx, ни iptables, ни настроек NetBird:
+сервер слушает только IP платы в NetBird (`100.107.17.63:8443`), поэтому
+из локальной сети университета его не видно, а из интернета — тем более.
+
+**Почему нужен HTTPS.** Safari на iPhone даёт доступ к микрофону только
+на `https://` (или `localhost`). По `http://100.107.17.63:8443` страница
+откроется, но микрофон не включится, а на голый IP публичный сертификат
+не выдают. Поэтому ниже — сертификат Let's Encrypt на `heyjarvis.ru`,
+выданный через DNS-проверку: плату из интернета видеть не нужно.
+
+### 9.1. DNS (один раз)
+
+`heyjarvis.ru` обслуживается Cloudflare: DNS → Records → **Add record**:
+тип `A`, имя `@`, IPv4 `100.107.17.63`, **Proxy status: DNS only (серое
+облако)**. С оранжевым облаком Cloudflare пытался бы проксировать трафик
+на адрес, до которого он не достаёт.
+
+Запись публичная, но адрес `100.x` доступен только из NetBird — снаружи
+по нему ничего не открыть.
+
+Проверить:
+
+```bash
+dig +short heyjarvis.ru @1.1.1.1
+```
+
+### 9.2. Сертификат (на ноутбуке, вручную)
+
+Выпускаем на ноутбуке и копируем на плату двумя файлами: на общей плате
+не остаётся ни acme.sh, ни cron, ни ключей от DNS. Автопродления нет —
+сертификат живёт 90 дней, дальше повторить этот раздел.
+
+Установить acme.sh без cron (ставится в `~/.acme.sh`, sudo не нужен):
+
+```bash
+git clone --depth 1 https://github.com/acmesh-official/acme.sh.git /tmp/acme.sh && cd /tmp/acme.sh && ./acme.sh --install --nocron --accountemail <ваша почта> && cd -
+```
+
+Запросить проверку:
+
+```bash
+~/.acme.sh/acme.sh --issue --server letsencrypt --dns -d heyjarvis.ru --yes-I-know-dns-manual-mode-enough-go-ahead-please
+```
+
+acme.sh напечатает `Domain: '_acme-challenge.heyjarvis.ru'` и
+`TXT value: '...'`. В Cloudflare добавить запись: тип `TXT`, имя
+`_acme-challenge`, содержимое — это значение. Дождаться, пока она видна:
+
+```bash
+dig +short TXT _acme-challenge.heyjarvis.ru @1.1.1.1
+```
+
+Завершить выпуск:
+
+```bash
+~/.acme.sh/acme.sh --renew --server letsencrypt -d heyjarvis.ru --yes-I-know-dns-manual-mode-enough-go-ahead-please
+```
+
+Скопировать на плату (TXT-запись после этого можно удалить):
+
+```bash
+ssh firefly@100.107.17.63 'mkdir -p ~/.jarvis-tls' && scp ~/.acme.sh/heyjarvis.ru_ecc/fullchain.cer firefly@100.107.17.63:~/.jarvis-tls/fullchain.pem && scp ~/.acme.sh/heyjarvis.ru_ecc/heyjarvis.ru.key firefly@100.107.17.63:~/.jarvis-tls/key.pem
+```
+
+При продлении файлы копируются по тем же путям — перезапускать
+оркестратор не нужно: `web_audio.py` раз в час проверяет сертификат и
+подхватывает новый.
+
+На плате — порт свободен и NetBird-адрес на месте:
+
+```bash
+ss -tlnp | grep 8443; ip -4 addr show wt0
+```
+
+Первая команда ничего не должна вывести, вторая — показать `100.107.17.63`.
+
+### 9.3. Запуск
+
+Токен доступа к странице — чтобы с Джарвисом не мог говорить любой пир
+университетской NetBird-сети:
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(12))"
+```
+
+Запускать в `tmux`, чтобы оркестратор не умер вместе с ssh-сессией:
+
+```bash
+tmux new -s jarvis
+```
+
+```bash
+cd ~/EDGE/24943/spartains/jarvis/orchestrator && conda activate jarvis && export JARVIS_WEB_TOKEN="<токен>"
+```
+
+```bash
+python app.py --web --web-host 100.107.17.63 --web-cert ~/.jarvis-tls/fullchain.pem --web-key ~/.jarvis-tls/key.pem
+```
+
+`--user-map` и `--no-indicator` — как в разделе 7. Выйти из tmux, не
+останавливая: `Ctrl+B`, затем `D`. Вернуться: `tmux attach -t jarvis`.
+
+### 9.4. Телефон
+
+1. Приложение NetBird на телефоне подключено.
+2. Safari → `https://heyjarvis.ru:8443` → ввести токен → разрешить
+   микрофон.
+3. Чтобы Safari не спрашивал про микрофон каждый раз: кнопка «аА» в
+   адресной строке → Настройки веб-сайта → Микрофон → Разрешить.
+4. «Поделиться» → **На экран «Домой»** — открывается как приложение.
+
+Нажали кнопку — говорите — нажали ещё раз. Ответ Джарвиса играет на
+телефоне, в ленте видно, что распознал Whisper и кого узнал Speaker ID.
+
+### 9.5. Если не работает
+
+- **Страница не открывается, `dig heyjarvis.ru` пустой** — DNS ещё
+  не обновился (NS-серверы у регистратора) или DNS-сервер сети отбрасывает ответы с
+  частными адресами (защита от DNS rebinding). Проверить с другой сети.
+- **Имя резолвится, но таймаут** — политики доступа в NetBird могут
+  пропускать между пирами только отдельные порты. Проверить с ноутбука:
+  `curl -v https://heyjarvis.ru:8443/api/status`. Если ssh
+  работает, а 8443 нет, — просить администратора `netbird.ci.nsu.ru`.
+- **«Джарвис сейчас не слушает» (503)** — микрофон выключен кнопкой BOOT
+  на индикаторе или оркестратор завис на прошлой команде.
+- **Проверить без платы**, на ноутбуке: `python app.py --mock --web` →
+  `http://localhost:8443` (на `localhost` браузер даёт микрофон и без
+  HTTPS; вместо голоса Piper будет гудок).

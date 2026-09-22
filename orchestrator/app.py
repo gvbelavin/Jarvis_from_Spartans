@@ -19,6 +19,9 @@ app.py — оркестратор «Джарвиса» (модуль А).
     python app.py                # реальное железо (микрофон, модели модуля Б)
     python app.py --mock         # офлайн-проверка связки без микрофона и моделей
     python app.py --once         # обработать одну команду и выйти
+    python app.py --web --web-host 100.107.17.63 \\
+        --web-cert ~/.jarvis-tls/fullchain.pem --web-key ~/.jarvis-tls/key.pem
+                                 # говорить через браузер телефона (web_audio.py)
 """
 
 from __future__ import annotations
@@ -26,6 +29,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
 import sys
 import time
 from pathlib import Path
@@ -34,7 +38,7 @@ from typing import Any, Optional
 from contracts import SpeakerResult
 from indicator import IndicatorEsp32, IndicatorNoop
 from indicating_audio import IndicatingAudioAdapter
-from settings import INDICATOR_PORT
+from settings import DEFAULT_WEB_PORT, INDICATOR_PORT
 
 # Корень папки orchestrator
 BASE_DIR = Path(__file__).resolve().parent
@@ -210,6 +214,8 @@ class JarvisOrchestrator:
 
         await self.indicator.open()
         await self.indicator.set_state("idle")
+        # Веб-режим поднимает здесь HTTP(S)-сервер; у AudioAdapter хука нет.
+        await self._audio_hook("open")
 
         logger.info("=" * 64)
         logger.info("Джарвис запущен. Ожидание wake word...")
@@ -261,13 +267,28 @@ class JarvisOrchestrator:
                     await self._say_safely(ERROR_PHRASE)
                     await asyncio.sleep(1.5)
                     await self.indicator.set_state("idle")
+
+                finally:
+                    # Веб-режим: всё, что было сказано за ход (включая
+                    # ERROR_PHRASE), уходит телефону одним ответом.
+                    await self._audio_hook("end_turn")
         finally:
             await self._say_safely(SHUTDOWN_PHRASE)
+            try:
+                await self._audio_hook("aclose")
+            except Exception:
+                logger.debug("Ошибка при остановке веб-сервера.", exc_info=True)
             try:
                 await self.indicator.close()
             except Exception:
                 logger.debug("Ошибка при закрытии индикатора.", exc_info=True)
             self.close()
+
+    async def _audio_hook(self, name: str) -> None:
+        """Вызывает необязательный хук аудиомодуля (есть у WebAudioAdapter)."""
+        method = getattr(self.audio, name, None)
+        if callable(method):
+            await method()
 
     async def _say_safely(self, phrase: str) -> None:
         """Озвучивает фразу, не давая сбою TTS уронить цикл."""
@@ -317,6 +338,29 @@ def parse_user_map(raw: Optional[str]) -> dict[str, str]:
     return mapping
 
 
+def _maybe_web(engine: Any, args: argparse.Namespace, sample_rate: int) -> Any:
+    """
+    В режиме --web микрофон и динамик платы заменяются браузером телефона.
+
+    Модели модуля Б при этом те же: engine (AudioAdapter или заглушка)
+    остаётся внутри и делает Speaker ID, STT и синтез Piper.
+    """
+    if not args.web:
+        return engine
+
+    from web_audio import WebAudioAdapter
+
+    return WebAudioAdapter(
+        engine,
+        sample_rate=sample_rate,
+        host=args.web_host,
+        port=args.web_port,
+        token=os.environ.get("JARVIS_WEB_TOKEN"),
+        cert_file=args.web_cert,
+        key_file=args.web_key,
+    )
+
+
 def _build_indicator(args: argparse.Namespace) -> Any:
     """
     Создаёт индикатор (ESP32 на USB-serial) или заглушку.
@@ -332,7 +376,7 @@ def _build_indicator(args: argparse.Namespace) -> Any:
 def build_orchestrator(args: argparse.Namespace) -> JarvisOrchestrator:
     """Собирает реальный оркестратор: модуль Б + модуль Ц + модуль Г + индикатор."""
 
-    from audio_adapter import AudioAdapter, check_ready
+    from audio_adapter import AudioAdapter, _submodule, check_ready
     from llm_adapter import LLMAdapter, load_llm_engine
 
     import jarvis_memory as memory
@@ -366,6 +410,7 @@ def build_orchestrator(args: argparse.Namespace) -> JarvisOrchestrator:
         record_timeout=args.record_timeout,
         user_id_map=parse_user_map(args.user_map),
     )
+    audio = _maybe_web(audio, args, _submodule("config").SAMPLE_RATE)
 
     # --- Модуль Г: локальная LLM -----------------------------------------
     if args.llm_module:
@@ -429,11 +474,12 @@ def build_mock_orchestrator(args: argparse.Namespace) -> JarvisOrchestrator:
             memory_seed.seed()
 
     indicator = _build_indicator(args)
+    engine = AudioEngineMock(
+        transcript=args.mock_transcript,
+        max_commands=args.max_commands,
+    )
     audio = IndicatingAudioAdapter(
-        AudioEngineMock(
-            transcript=args.mock_transcript,
-            max_commands=args.max_commands,
-        ),
+        _maybe_web(engine, args, sample_rate=16000),
         indicator,
     )
 
@@ -516,6 +562,38 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         "--no-indicator",
         action="store_true",
         help="полностью отключить интеграцию с платой индикатора",
+    )
+    parser.add_argument(
+        "--web",
+        action="store_true",
+        help=(
+            "слушать не микрофон платы, а браузер телефона (web_audio.py); "
+            "токен доступа — из переменной окружения JARVIS_WEB_TOKEN"
+        ),
+    )
+    parser.add_argument(
+        "--web-host",
+        default="127.0.0.1",
+        help=(
+            "адрес веб-интерфейса; на плате — IP в NetBird, чтобы страница "
+            "не была видна в локальной сети (по умолчанию 127.0.0.1)"
+        ),
+    )
+    parser.add_argument(
+        "--web-port",
+        type=int,
+        default=DEFAULT_WEB_PORT,
+        help=f"порт веб-интерфейса (по умолчанию {DEFAULT_WEB_PORT})",
+    )
+    parser.add_argument(
+        "--web-cert",
+        default=None,
+        help="fullchain.pem для HTTPS (без HTTPS iPhone не даст микрофон)",
+    )
+    parser.add_argument(
+        "--web-key",
+        default=None,
+        help="приватный ключ к --web-cert",
     )
     parser.add_argument(
         "--log-level",

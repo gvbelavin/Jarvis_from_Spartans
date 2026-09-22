@@ -4,6 +4,9 @@
 # Одна единственная реальная зависимость самого оркестратора.
 pyserial>=3.5
 
+# Веб-интерфейс для телефона (web_audio.py, режим --web).
+aiohttp>=3.9
+
 # Всё остальное — стандартная библиотека Python:
 #   asyncio, logging, dataclasses, argparse, pathlib, typing
 #

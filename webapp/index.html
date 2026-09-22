@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Джарвис">
+  <meta name="theme-color" content="#0e1116">
+  <link rel="manifest" href="/static/manifest.webmanifest">
+  <title>Джарвис</title>
+  <style>
+    :root {
+      --bg: #f4f5f7;
+      --surface: #ffffff;
+      --text: #14171c;
+      --muted: #6a7280;
+      --accent: #2f6fed;
+      --rec: #e5484d;
+      --me: #2f6fed;
+      --me-text: #ffffff;
+      --border: #e2e5ea;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0e1116;
+        --surface: #181c23;
+        --text: #e8eaee;
+        --muted: #8b93a1;
+        --accent: #5b8cff;
+        --rec: #ff5a5f;
+        --me: #2b4c8f;
+        --me-text: #e8eaee;
+        --border: #262b34;
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      flex-direction: column;
+      padding: env(safe-area-inset-top) 16px env(safe-area-inset-bottom);
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 0;
+    }
+    h1 { font-size: 20px; margin: 0; font-weight: 600; }
+    #conn { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+    #conn::before {
+      content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--muted);
+    }
+    #conn.online::before { background: #30a46c; }
+    #conn.offline::before { background: var(--rec); }
+
+    #log {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 8px 0;
+      -webkit-user-select: text;
+      user-select: text;
+    }
+    .msg {
+      max-width: 85%;
+      padding: 8px 12px;
+      border-radius: 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      white-space: pre-wrap;
+    }
+    .msg.me { align-self: flex-end; background: var(--me); color: var(--me-text); border-color: transparent; }
+    .msg .who { display: block; font-size: 12px; opacity: .7; margin-bottom: 2px; }
+    .msg.err { align-self: center; background: none; border: none; color: var(--rec); font-size: 14px; text-align: center; }
+    .empty { margin: auto; color: var(--muted); text-align: center; font-size: 15px; }
+
+    footer {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 0 20px;
+    }
+    #talk {
+      width: 128px; height: 128px;
+      border-radius: 50%;
+      border: none;
+      background: var(--accent);
+      color: #fff;
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+      -webkit-touch-callout: none;
+      transition: transform .1s, background .2s;
+      display: flex; align-items: center; justify-content: center;
+    }
+    #talk:active { transform: scale(.96); }
+    #talk svg { width: 44px; height: 44px; }
+    #talk.recording { background: var(--rec); box-shadow: 0 0 0 var(--ring, 0px) color-mix(in srgb, var(--rec) 30%, transparent); }
+    #talk.busy { background: var(--muted); cursor: default; }
+    #status { color: var(--muted); font-size: 14px; min-height: 20px; text-align: center; }
+
+    #auth {
+      display: none;
+      gap: 8px;
+      padding: 12px;
+      border-radius: 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      margin-bottom: 8px;
+    }
+    #auth.show { display: flex; }
+    #auth input {
+      flex: 1; min-width: 0;
+      font: inherit; padding: 8px 10px;
+      border-radius: 8px; border: 1px solid var(--border);
+      background: var(--bg); color: var(--text);
+    }
+    #auth button {
+      font: inherit; padding: 8px 14px; border: none; border-radius: 8px;
+      background: var(--accent); color: #fff;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Джарвис</h1>
+    <span id="conn">…</span>
+  </header>
+
+  <form id="auth">
+    <input id="token" type="password" placeholder="Токен доступа" autocomplete="current-password">
+    <button type="submit">OK</button>
+  </form>
+
+  <main id="log"><p class="empty" id="empty">Нажмите кнопку и говорите.<br>Нажмите ещё раз, когда закончите.</p></main>
+
+  <footer>
+    <button id="talk" aria-label="Говорить">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><path d="M12 17v5"/>
+      </svg>
+    </button>
+    <div id="status"></div>
+  </footer>
+
+  <audio id="player" playsinline preload="none"></audio>
+  <script src="/static/app.js"></script>
+</body>
+</html>
