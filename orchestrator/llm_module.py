@@ -51,8 +51,11 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 import urllib.error
 import urllib.request
+
+from timing import log_llm_perf
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +116,7 @@ class LLMEngine:
             method="POST",
         )
 
+        t0 = time.perf_counter()
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 body = json.loads(response.read().decode("utf-8"))
@@ -142,6 +146,23 @@ class LLMEngine:
                 "RKLLM-сервер вернул не JSON — вероятно, это HTML-страница "
                 "ошибки Flask. Смотрите ~/rkllm_server.log."
             ) from exc
+
+        elapsed = time.perf_counter() - t0
+
+        # Токены нужны и для отчёта на защите ("почему долго?"), и просто
+        # для регрессий: заметное падение tok/s — сигнал, что сервер греется
+        # или отвалился NPU и генерация ушла на CPU.
+        usage = body.get("usage") if isinstance(body, dict) else None
+        if isinstance(usage, dict):
+            log_llm_perf(
+                prompt_tokens=usage.get("prompt_tokens"),
+                completion_tokens=usage.get("completion_tokens"),
+                total_tokens=usage.get("total_tokens"),
+                elapsed=elapsed,
+            )
+        else:
+            # Патченный flask_server может отдавать без usage — пишем хотя бы время.
+            logger.info("llm perf: usage missing | %.2fs", elapsed)
 
         return self._extract_text(body)
 

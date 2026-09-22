@@ -24,8 +24,21 @@ import logging
 from typing import Any
 
 from contracts import GUEST_NAME, SpeakerResult
+from timing import astage
 
 logger = logging.getLogger(__name__)
+
+
+async def _timed(name: str, coro):
+    """Обёртка для тайминга задач, которые уходят в asyncio.gather().
+
+    Хочется отдельно видеть, сколько заняли identification и stt, но они
+    идут параллельно — просто обернуть блок stage()-ом нельзя. Поэтому
+    таймим каждую корутину сама по себе, и лог остаётся ровно того же
+    формата, что у последовательных стадий.
+    """
+    async with astage(name):
+        return await coro
 
 
 class IndicatingAudioAdapter:
@@ -43,10 +56,12 @@ class IndicatingAudioAdapter:
 
     async def listen_once(self) -> tuple[SpeakerResult, str]:
         # ждём wake word — плата в это время в "idle"
-        await self._inner.wait_for_wake_word()
+        async with astage("wake_word"):
+            await self._inner.wait_for_wake_word()
         await self._indicator.set_state("listening")
 
-        audio_data = await self._inner.record_phrase()
+        async with astage("record"):
+            audio_data = await self._inner.record_phrase()
 
         if audio_data is None or getattr(audio_data, "size", 1) == 0:
             logger.warning("No speech recorded after wake word.")
@@ -62,11 +77,14 @@ class IndicatingAudioAdapter:
 
         await self._indicator.set_state("thinking")
 
+        # identification и stt идут параллельно (asyncio.gather), поэтому
+        # обёрнуты индивидуально через _timed — иначе в логе будет одна
+        # цифра на два этапа и по ней не понять, кто из них тормозил.
         speaker_task = asyncio.create_task(
-            self._inner.identify_speaker(audio_data)
+            _timed("identification", self._inner.identify_speaker(audio_data))
         )
         stt_task = asyncio.create_task(
-            self._inner.speech_to_text(audio_data)
+            _timed("stt", self._inner.speech_to_text(audio_data))
         )
 
         try:
@@ -106,7 +124,8 @@ class IndicatingAudioAdapter:
     async def play_tts(self, text: str) -> None:
         await self._indicator.set_state("speaking")
         try:
-            await self._inner.play_tts(text)
+            async with astage("tts"):
+                await self._inner.play_tts(text)
         finally:
             # После проговаривания вернём индикатор в idle, чтобы
             # цикл-фраза-цикл-фраза выглядел естественно. Ошибка

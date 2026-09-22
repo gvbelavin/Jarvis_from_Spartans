@@ -39,6 +39,7 @@ from contracts import SpeakerResult
 from indicator import IndicatorEsp32, IndicatorNoop
 from indicating_audio import IndicatingAudioAdapter
 from settings import DEFAULT_WEB_PORT, INDICATOR_PORT
+from timing import astage
 
 # Корень папки orchestrator
 BASE_DIR = Path(__file__).resolve().parent
@@ -146,9 +147,10 @@ class JarvisOrchestrator:
         # 3. Память и RAG: профиль, расписание, факты, история — всё
         #    именно этого пользователя. user_id=None (гость) поддержан
         #    модулем памяти отдельной веткой.
-        ctx = await asyncio.to_thread(
-            self.memory.build_context, user_id, transcript
-        )
+        async with astage("memory"):
+            ctx = await asyncio.to_thread(
+                self.memory.build_context, user_id, transcript
+            )
 
         self._check_profile(user_id, ctx)
 
@@ -156,7 +158,8 @@ class JarvisOrchestrator:
         #    system + история + текущий вопрос. Ничего не склеиваем сами.
         messages = ctx.to_messages()
         logger.info("Думаю... (запрос к LLM, %d сообщений)", len(messages))
-        reply_text = await self.llm.generate(messages)
+        async with astage("llm"):
+            reply_text = await self.llm.generate(messages)
 
         reply_text = (reply_text or "").strip()
 
@@ -166,9 +169,10 @@ class JarvisOrchestrator:
 
         # 5. История: сохраняем пару «вопрос — ответ» для этого пользователя.
         #    Без этого вызова не работают ни «повтори», ни многоходовой диалог.
-        await asyncio.to_thread(
-            self.memory.record_answer, user_id, transcript, reply_text
-        )
+        async with astage("memory_write"):
+            await asyncio.to_thread(
+                self.memory.record_answer, user_id, transcript, reply_text
+            )
 
         latency = time.perf_counter() - started_at
         logger.info(
