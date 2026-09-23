@@ -19,6 +19,8 @@ app.py — оркестратор «Джарвиса» (модуль А).
     python app.py                # реальное железо (микрофон, модели модуля Б)
     python app.py --mock         # офлайн-проверка связки без микрофона и моделей
     python app.py --once         # обработать одну команду и выйти
+    python app.py --use_api      # LLM и STT из облака вместо платы
+                                 # (замер «железо или модели?», api_backend.py)
     python app.py --web --web-host 100.107.17.63 \\
         --web-cert ~/.jarvis-tls/fullchain.pem --web-key ~/.jarvis-tls/key.pem
                                  # говорить через браузер телефона (web_audio.py)
@@ -401,6 +403,10 @@ def build_orchestrator(args: argparse.Namespace) -> JarvisOrchestrator:
     from audio_adapter import AudioAdapter, _submodule, check_ready
     from llm_adapter import LLMAdapter, load_llm_engine
 
+    # Временный режим замера: две ступени уезжают в облако (api_backend.py).
+    if args.use_api:
+        import api_backend
+
     import jarvis_memory as memory
     from jarvis_memory import db as memory_db
 
@@ -416,6 +422,12 @@ def build_orchestrator(args: argparse.Namespace) -> JarvisOrchestrator:
     # ModuleNotFoundError прилетит из отдельного потока, и по логу будет
     # непонятно, чего именно не хватает.
     problems = check_ready()
+
+    # В режиме --use_api локальный Whisper не грузится вообще, поэтому
+    # его отсутствие не должно мешать старту. Остальные требования
+    # модуля Б (WeSpeaker, openWakeWord, Piper) остаются в силе.
+    if args.use_api:
+        problems = api_backend.drop_local_stt_problems(problems)
 
     if problems:
         logger.error("Аудиомодуль (модуль Б) не готов к запуску:")
@@ -433,6 +445,8 @@ def build_orchestrator(args: argparse.Namespace) -> JarvisOrchestrator:
         user_id_map=parse_user_map(args.user_map),
     )
     sample_rate = _submodule("config").SAMPLE_RATE
+    if args.use_api:
+        audio = api_backend.wrap_audio(audio, sample_rate)
     audio = _maybe_web(audio, args, sample_rate)
     # --debug: каждая фраза сохраняется в WAV (debug_audio.py).
     audio = maybe_debug_audio(
@@ -440,7 +454,9 @@ def build_orchestrator(args: argparse.Namespace) -> JarvisOrchestrator:
     )
 
     # --- Модуль Г: локальная LLM -----------------------------------------
-    if args.llm_module:
+    if args.use_api:
+        llm = api_backend.build_llm()
+    elif args.llm_module:
         llm = load_llm_engine(args.llm_module, args.llm_class)
     else:
         try:
@@ -513,11 +529,18 @@ def build_mock_orchestrator(args: argparse.Namespace) -> JarvisOrchestrator:
     )
     audio = IndicatingAudioAdapter(audio, indicator)
 
-    return JarvisOrchestrator(
-        audio=audio,
+    if args.use_api:
+        import api_backend
+
+        llm = api_backend.build_llm()
+    else:
         # Заглушка LLM синхронная — оборачиваем её тем же адаптером,
         # что и реальный модуль Г: так проверяется и путь to_thread.
-        llm=LLMAdapter(LLMEngineMock()),
+        llm = LLMAdapter(LLMEngineMock())
+
+    return JarvisOrchestrator(
+        audio=audio,
+        llm=llm,
         memory=memory,
         indicator=indicator,
         warn_on_unknown_profile=warn_on_unknown_profile,
@@ -579,6 +602,19 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         "--llm-class",
         default="LLMEngine",
         help="имя класса LLM в модуле Г (по умолчанию LLMEngine)",
+    )
+    parser.add_argument(
+        "--use_api",
+        "--use-api",
+        dest="use_api",
+        action="store_true",
+        help=(
+            "временный режим замера: LLM и STT берутся из облачного "
+            "OpenAI-совместимого релея (api_backend.py), а не с платы. "
+            "Wake word, Speaker ID и Piper TTS остаются локальными. "
+            "Ключ — в переменной окружения RELAY_TOKEN. "
+            "С --mock подменяется только LLM: у заглушки нет реальной записи"
+        ),
     )
     parser.add_argument(
         "--indicator-port",
