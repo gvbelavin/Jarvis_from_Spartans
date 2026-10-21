@@ -145,7 +145,7 @@ python app.py --mock --once     # один прогон на заглушках
 ### На реальном железе
 
 Перед запуском настроить модуль Б по его README: собрать `whisper.cpp`,
-положить `ggml-base.bin`, модель Piper и эталонные записи в
+положить `ggml-small.bin`, модель Piper и эталонные записи в
 `audio_module/audio_dataset/references/<user_id>/`, создать `paths.py`
 (он в `.gitignore` подмодуля), выставить `DEVICE_NUMBER` в `audio_module/config.py`.
 

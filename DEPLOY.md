@@ -21,7 +21,7 @@ wespeaker + torch ещё ~5 ГБ. **Перед установкой нужно ~
 | Код оркестратора, `llm_module.py`, подмодули Б и Ц | `git pull` | ~200 КБ |
 | Голос Piper `ru-daniel_gleb-medium.onnx` + `.json` | **scp** (в `.gitignore`: `*.onnx`) | 61 МБ |
 | Эмбеддинги RAG `models/` (модуль Ц) | **scp** (в `.gitignore`: `models/`) | 30 МБ |
-| Whisper `ggml-base.bin` | **скачивается на плате** (curl) | 141 МБ |
+| Whisper `ggml-small.bin` | **скачивается на плате** (curl) | 141 МБ |
 | Модель openWakeWord `hey_jarvis` | **скачивается на плате** (python) | 3 МБ |
 | Эталонные записи голосов `audio_dataset/` | **scp** (в `.gitignore`) | единицы МБ |
 | `wespeaker` + torch | **pip на плате** (из git, не с PyPI) | ~5 ГБ |
@@ -213,7 +213,7 @@ scp -r orchestrator/audio_module/audio_dataset firefly@100.107.17.63:~/EDGE/2494
 Обратно **на плате** — публичные веса качаем напрямую:
 
 ```bash
-mkdir -p orchestrator/audio_module/whisper.cpp && curl -L -o orchestrator/audio_module/whisper.cpp/ggml-base.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin
+mkdir -p orchestrator/audio_module/whisper.cpp && curl -L -o orchestrator/audio_module/whisper.cpp/ggml-small.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin
 ```
 
 ```bash

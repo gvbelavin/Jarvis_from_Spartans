@@ -106,8 +106,8 @@ def check_ready() -> list[str]:
 
     # Модели и эталонные записи.
     missing_assets = []
-    if not (AUDIO_MODULE_DIR / "whisper.cpp" / "ggml-base.bin").is_file():
-        missing_assets.append("whisper.cpp/ggml-base.bin")
+    if not (AUDIO_MODULE_DIR / "whisper.cpp" / "ggml-small.bin").is_file():
+        missing_assets.append("whisper.cpp/ggml-small.bin")
     if not (AUDIO_MODULE_DIR / "ru_RU-dmitri-medium.onnx").is_file():
         missing_assets.append("ru_RU-dmitri-medium.onnx")
 
