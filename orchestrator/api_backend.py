@@ -424,7 +424,7 @@ def drop_local_stt_problems(problems: list[str]) -> list[str]:
     """
     Убирает из отчёта check_ready() претензии к локальному Whisper.
 
-    В режиме --use_api ни pywhispercpp, ни ggml-base.bin не нужны:
+    В режиме --use_api ни pywhispercpp, ни ggml-small.bin не нужны:
     распознаёт облако. Всё остальное (WeSpeaker, openWakeWord, Piper)
     по-прежнему обязательно, и эти строки остаются как были.
     """
@@ -434,12 +434,12 @@ def drop_local_stt_problems(problems: list[str]) -> list[str]:
         if "pywhispercpp" in problem:
             continue
 
-        if "нет моделей модуля Б:" in problem and "ggml-base.bin" in problem:
+        if "нет моделей модуля Б:" in problem and "ggml-small.bin" in problem:
             prefix, _, assets = problem.partition(":")
             rest = [
                 asset.strip()
                 for asset in assets.split(",")
-                if asset.strip() and "ggml-base.bin" not in asset
+                if asset.strip() and "ggml-small.bin" not in asset
             ]
             if not rest:
                 continue
